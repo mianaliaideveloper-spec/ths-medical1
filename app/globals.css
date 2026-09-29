@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f4f7f5;
+  --foreground: #1c2430;
+  --ths: #156b47;
+  --ths-dark: #0f4d33;
+  --ths-soft: #e8f3ed;
+  --clinic: #1a4f8b;
+  --clinic-dark: #123864;
+  --clinic-soft: #e7f0fa;
+  --line: #d7e3dc;
+  --muted: #5c6b73;
+  --danger: #9f2d2d;
+  --warning: #9a5b12;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-ths: var(--ths);
+  --color-ths-dark: var(--ths-dark);
+  --color-ths-soft: var(--ths-soft);
+  --color-clinic: var(--clinic);
+  --color-clinic-dark: var(--clinic-dark);
+  --color-clinic-soft: var(--clinic-soft);
+  --color-line: var(--line);
+  --color-muted: var(--muted);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --font-sans: var(--font-source);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-source), "Segoe UI", sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 860px;
+  font-size: 0.92rem;
+}
+
+table.data th {
+  text-align: left;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: #f7faf8;
+  padding: 0.75rem 0.8rem;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+table.data td {
+  padding: 0.75rem 0.8rem;
+  border-bottom: 1px solid #e8efeb;
+  vertical-align: middle;
+}
+
+table.data tr:hover td {
+  background: #f8fbf9;
+}
