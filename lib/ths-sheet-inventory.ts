@@ -1,5 +1,5 @@
 import { STORE_LABEL } from "@/lib/branding";
-import { daysUntil, todayIso } from "@/lib/format";
+import { todayIso } from "@/lib/format";
 import { medicineNameCatalog, type MedicineNameCatalogEntry } from "@/lib/medicine-name-catalog";
 import { prepareMedicineForSave } from "@/lib/medicine-save";
 import { formatStrength, parseStrength } from "@/lib/strength";
@@ -7,8 +7,8 @@ import type { Category, Medicine, MedicineInput, Supplier } from "@/lib/types";
 
 export const THS_SHEET_SUPPLIER_NAME = "THS Medical Center";
 
-/** Default qty for clinic list items (≥10 = in stock, not low/out). */
-export const THS_SHEET_DEFAULT_QUANTITY = 10;
+/** New catalog entries have no counted physical stock yet. */
+export const THS_SHEET_DEFAULT_QUANTITY = 0;
 
 const catalogNameKeys = new Set(
   medicineNameCatalog.map((item) => item.name.trim().toLowerCase()),
@@ -26,30 +26,6 @@ export function thsSheetDefaultDates() {
     manufacturingDate: today,
     expiryDate: expiry.toISOString().slice(0, 10),
   };
-}
-
-export function applyThsInStockDefaults(medicine: Medicine): Medicine {
-  const dates = thsSheetDefaultDates();
-  const now = new Date().toISOString();
-  const expiryOk = medicine.expiryDate && daysUntil(medicine.expiryDate) >= 0;
-  return {
-    ...medicine,
-    quantity: medicine.quantity > 0 ? medicine.quantity : THS_SHEET_DEFAULT_QUANTITY,
-    manufacturingDate: medicine.manufacturingDate?.trim() || dates.manufacturingDate,
-    expiryDate: expiryOk ? medicine.expiryDate : dates.expiryDate,
-    updatedAt: now,
-  };
-}
-
-export function restockThsCatalogMedicines(medicines: Medicine[]) {
-  let count = 0;
-  const updated = medicines.map((item) => {
-    if (!isThsCatalogMedicineName(item.name)) return item;
-    if (item.quantity > 0 && item.expiryDate && daysUntil(item.expiryDate) >= 0) return item;
-    count += 1;
-    return applyThsInStockDefaults(item);
-  });
-  return { medicines: updated, count };
 }
 
 function thsSheetPlaceholderFields() {

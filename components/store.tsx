@@ -77,16 +77,6 @@ import {
 } from "@/lib/fixed-auth";
 import { prepareMedicineForSave } from "@/lib/medicine-save";
 import {
-  applyThsInStockDefaults,
-  buildThsSheetMedicineRows,
-  ensureThsSheetCategories,
-  ensureThsSheetSupplier,
-  isThsCatalogMedicineName,
-  restockThsCatalogMedicines,
-  THS_SHEET_SUPPLIER_NAME,
-  thsSheetCatalogSize,
-} from "@/lib/ths-sheet-inventory";
-import {
   nextSlipNumber,
   nextTokenNumber,
   normalizeReceptionVisits,
@@ -94,7 +84,6 @@ import {
   validateReceptionInput,
 } from "@/lib/reception";
 import {
-  daysUntil,
   isExpired,
   isExpiringSoon,
   isLowStock,
@@ -133,7 +122,7 @@ type StoreContextValue = {
   rentItems: RentItem[];
   registerReceptionVisit: (input: ReceptionVisitInput) => Promise<ReceptionVisit>;
   markReceptionMedicineIssued: (id: string) => Promise<void>;
-  saveReceptionPrescription: (id: string, prescription: PrescribedMedicine[], doctorNote: string) => Promise<void>;
+  saveReceptionPrescription: (id: string, prescription: PrescribedMedicine[], doctorNote: string, complaint?: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -155,7 +144,6 @@ type StoreContextValue = {
   issueCustomerBill: (rows: BillCartRow[]) => Promise<BillIssueSummary[]>;
   syncLocalInventory: (data: ReturnType<typeof readDeskData>) => void;
   importThsSheetCatalog: () => Promise<{ added: number; total: number; catalogSize: number }>;
-  markThsCatalogInStock: () => Promise<{ updated: number }>;
 };
 
 const StoreContext = createContext<StoreContextValue | null>(null);
@@ -319,10 +307,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       suppliers,
       movements,
       receptionVisits,
-      async saveReceptionPrescription(id, prescription, doctorNote) {
+      async saveReceptionPrescription(id, prescription, doctorNote, complaint) {
         const prescribedAt = new Date().toISOString();
         const update = (item: ReceptionVisit) => item.id === id
-          ? { ...item, prescription, doctorNote: doctorNote.trim(), prescribedAt, status: "waiting_reception" as const }
+          ? { ...item, prescription, doctorNote: doctorNote.trim(), ...(complaint !== undefined ? { complaint: complaint.trim() } : {}), prescribedAt, status: "waiting_reception" as const }
           : item;
         if (isLocalAdmin(user?.uid)) {
           const data = readDeskData();
@@ -333,7 +321,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         const firebase = await firebaseOrThrow();
         await updateDoc(doc(firebase.db, "receptionVisits", id), {
-          prescription, doctorNote: doctorNote.trim(), prescribedAt, status: "waiting_reception",
+          prescription, doctorNote: doctorNote.trim(), ...(complaint !== undefined ? { complaint: complaint.trim() } : {}), prescribedAt, status: "waiting_reception",
         });
       },
       rentItems,
@@ -378,6 +366,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         });
       },
       async importThsSheetCatalog() {
+        const {
+          buildThsSheetMedicineRows,
+          ensureThsSheetCategories,
+          ensureThsSheetSupplier,
+          THS_SHEET_SUPPLIER_NAME,
+          thsSheetCatalogSize,
+        } = await import("@/lib/ths-sheet-inventory");
         const catalogSize = thsSheetCatalogSize();
 
         if (isLocalAdmin(user?.uid)) {
@@ -389,8 +384,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }
           const newRows = buildThsSheetMedicineRows(data.medicines, data.categories, supplier);
           data.medicines = [...data.medicines, ...newRows];
-          const restocked = restockThsCatalogMedicines(data.medicines);
-          data.medicines = restocked.medicines.sort((a, b) => a.name.localeCompare(b.name));
+          data.medicines.sort((a, b) => a.name.localeCompare(b.name));
           writeDeskData(data);
           setCategories(data.categories);
           setSuppliers(data.suppliers);
@@ -432,35 +426,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           await addDoc(collection(firebase.db, "medicines"), payload);
         }
         return { added: newRows.length, total: medicines.length + newRows.length, catalogSize };
-      },
-      async markThsCatalogInStock() {
-        if (isLocalAdmin(user?.uid)) {
-          const data = readDeskData();
-          const restocked = restockThsCatalogMedicines(data.medicines);
-          if (restocked.count === 0) return { updated: 0 };
-          data.medicines = restocked.medicines.sort((a, b) => a.name.localeCompare(b.name));
-          writeDeskData(data);
-          setMedicines(data.medicines);
-          return { updated: restocked.count };
-        }
-
-        const firebase = await firebaseOrThrow();
-        let updated = 0;
-        for (const med of medicines) {
-          if (!isThsCatalogMedicineName(med.name)) continue;
-          const needsQty = med.quantity <= 0;
-          const needsExpiry = !med.expiryDate || daysUntil(med.expiryDate) < 0;
-          if (!needsQty && !needsExpiry) continue;
-          const next = applyThsInStockDefaults(med);
-          await updateDoc(doc(firebase.db, "medicines", med.id), {
-            quantity: next.quantity,
-            manufacturingDate: next.manufacturingDate,
-            expiryDate: next.expiryDate,
-            updatedAt: next.updatedAt,
-          });
-          updated += 1;
-        }
-        return { updated };
       },
       async registerReceptionVisit(input) {
         const validated = validateReceptionInput(input);

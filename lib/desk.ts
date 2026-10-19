@@ -97,7 +97,9 @@ export function clearDeskSession() {
 function migrateDeskDataOnce() {
   if (typeof window === "undefined") return;
   if (window.localStorage.getItem(SCHEMA_KEY) === SCHEMA_VERSION) return;
-  window.localStorage.setItem(DATA_KEY, JSON.stringify(emptyData()));
+  if (!window.localStorage.getItem(DATA_KEY)) {
+    window.localStorage.setItem(DATA_KEY, JSON.stringify(emptyData()));
+  }
   window.localStorage.setItem(SCHEMA_KEY, SCHEMA_VERSION);
 }
 

@@ -15,7 +15,7 @@ type ListFilter = "all" | "expired";
 
 function MedicinesTable() {
   const params = useSearchParams();
-  const { medicines, deleteMedicine, importThsSheetCatalog, markThsCatalogInStock } = useStore();
+  const { medicines, deleteMedicine, importThsSheetCatalog } = useStore();
   const [query, setQuery] = useState(params.get("q") || "");
   const [filter, setFilter] = useState<ListFilter>(params.get("filter") === "expired" ? "expired" : "all");
   const [importNote, setImportNote] = useState("");
@@ -31,13 +31,10 @@ function MedicinesTable() {
     setImportBusy(true);
     setImportNote("");
     try {
-      await importThsSheetCatalog();
-      const restock = await markThsCatalogInStock();
-      setImportNote(
-        restock.updated > 0
-          ? `Updated ${restock.updated} medicines to in stock (quantity 10, dates refreshed).`
-          : `THS list is up to date — ${medicines.length} medicines, all catalog items already in stock.`,
-      );
+      const result = await importThsSheetCatalog();
+      setImportNote(result.added > 0
+        ? `Added ${result.added} missing medicines. Enter counted stock for items you physically have.`
+        : `THS list is up to date — ${medicines.length} medicines.`);
     } catch (err) {
       setImportNote(err instanceof Error ? err.message : "Could not sync the clinic list.");
     } finally {
