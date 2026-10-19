@@ -1,9 +1,8 @@
-import { PRINT_FEE_PER_DAY_PKR } from "@/lib/branding";
 import { formatPkr } from "@/lib/format";
 import { medicineUsesStrip, resolveDoseTablets, resolveTabletsPerStrip } from "@/lib/pack";
-import type { Medicine } from "@/lib/types";
+import type { Medicine, RentItem } from "@/lib/types";
 
-export type MedicinePrintInput =
+export type MedicineIssueInput =
   | { mode: "unit"; unitQty: number }
   | {
       mode: "tablets";
@@ -26,7 +25,7 @@ export type BillLine = {
   lineTotal: number;
 };
 
-export function buildBillLine(medicine: Medicine, input?: MedicinePrintInput): BillLine {
+export function buildBillLine(medicine: Medicine, input?: MedicineIssueInput): BillLine {
   if (medicineUsesStrip(medicine)) {
     const perStrip =
       input?.mode === "tablets" && input.tabletsPerStrip
@@ -39,6 +38,7 @@ export function buildBillLine(medicine: Medicine, input?: MedicinePrintInput): B
       input?.mode === "tablets" && input.doseTablets !== undefined
         ? input.doseTablets
         : resolveDoseTablets(medicine);
+    const unitPrice = Math.max(0, medicine.salePrice);
     return {
       medicineName: medicine.name,
       genericName: medicine.genericName,
@@ -49,12 +49,13 @@ export function buildBillLine(medicine: Medicine, input?: MedicinePrintInput): B
       doseTablets: dose,
       unitQty: tabletQuantity,
       unitLabel: "tablet",
-      unitPrice: 0,
-      lineTotal: 0,
+      unitPrice,
+      lineTotal: stripCount * unitPrice,
     };
   }
   const unitQty = input?.mode === "unit" ? input.unitQty : 1;
   const qty = Math.max(1, unitQty);
+  const unitPrice = Math.max(0, medicine.salePrice);
   return {
     medicineName: medicine.name,
     genericName: medicine.genericName,
@@ -65,8 +66,8 @@ export function buildBillLine(medicine: Medicine, input?: MedicinePrintInput): B
     doseTablets: 0,
     unitQty: qty,
     unitLabel: medicine.unit.toLowerCase(),
-    unitPrice: 0,
-    lineTotal: 0,
+    unitPrice,
+    lineTotal: qty * unitPrice,
   };
 }
 
@@ -74,21 +75,73 @@ export function formatBillTotal(line: BillLine) {
   return formatPkr(line.lineTotal);
 }
 
-export type BillCartRow = {
+export type MedicineBillRow = {
   id: string;
+  kind: "medicine";
   medicine: Medicine;
   line: BillLine;
+  /** Units removed from inventory (strips or product unit). */
+  issueQty: number;
 };
 
-export function normalizeSupplyDays(days: number) {
-  return Math.max(1, Math.floor(Number(days) || 1));
+export type RentBillRow = {
+  id: string;
+  kind: "rent";
+  item: RentItem;
+  qty: number;
+  unitPrice: number;
+  lineTotal: number;
+  issueQty: number;
+};
+
+export type BillCartRow = MedicineBillRow | RentBillRow;
+
+/** Inventory deduction for one medicine line (strips for strip packs, else unit qty). */
+export function billLineIssueQuantity(medicine: Medicine, line: BillLine) {
+  if (medicineUsesStrip(medicine)) return line.stripCount;
+  return line.unitQty;
 }
 
-export function printFeeForDays(supplyDays: number) {
-  return normalizeSupplyDays(supplyDays) * PRINT_FEE_PER_DAY_PKR;
+export function medicineIssueInCart(rows: BillCartRow[], medicineId: string) {
+  return rows.reduce((sum, row) => {
+    if (row.kind !== "medicine" || row.medicine.id !== medicineId) return sum;
+    return sum + row.issueQty;
+  }, 0);
 }
 
-export function billGrandTotal(rows: BillCartRow[], supplyDays = 1) {
-  if (rows.length === 0) return 0;
-  return printFeeForDays(supplyDays);
+export function rentIssueInCart(rows: BillCartRow[], rentItemId: string) {
+  return rows.reduce((sum, row) => {
+    if (row.kind !== "rent" || row.item.id !== rentItemId) return sum;
+    return sum + row.issueQty;
+  }, 0);
+}
+
+export function buildRentBillRow(item: RentItem, qty: number): RentBillRow {
+  const issueQty = Math.max(1, Math.floor(qty));
+  const unitPrice = Math.max(0, item.rentPrice);
+  return {
+    id: crypto.randomUUID(),
+    kind: "rent",
+    item,
+    qty: issueQty,
+    unitPrice,
+    lineTotal: issueQty * unitPrice,
+    issueQty,
+  };
+}
+
+export function billGrandTotal(rows: BillCartRow[]) {
+  return rows.reduce((sum, row) => {
+    if (row.kind === "medicine") return sum + row.line.lineTotal;
+    return sum + row.lineTotal;
+  }, 0);
+}
+
+export function stockPreview(currentQty: number, issueQty: number) {
+  const issue = Math.max(0, Math.floor(issueQty));
+  return {
+    before: currentQty,
+    issue,
+    after: currentQty - issue,
+  };
 }

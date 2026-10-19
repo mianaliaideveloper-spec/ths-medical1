@@ -35,6 +35,12 @@ function unitFromItemType(itemType: string): string {
       return "Tube";
     case "Medical Item":
       return "Pcs";
+    case "Drops":
+      return "Bottle";
+    case "Pkt":
+      return "Pkt";
+    case "Tape":
+      return "Roll";
     default:
       return itemType || "Tablet";
   }
@@ -51,27 +57,7 @@ function buildCatalogEntry(name: string, itemType: string): MedicineNameCatalogE
   };
 }
 
-/** THS clinic spreadsheet (98 items) + legacy hints kept for older names. */
-export const medicineNameCatalog: MedicineNameCatalogEntry[] = (() => {
-  const byName = new Map<string, MedicineNameCatalogEntry>();
-  for (const row of THS_SHEET_MEDICINES) {
-    byName.set(row.name.trim().toLowerCase(), buildCatalogEntry(row.name.trim(), row.itemType));
-  }
-  const legacy: Array<[string, string]> = [
-    ["Augmentin", "Tablet"],
-    ["Risek", "Tablet"],
-    ["Norvasc", "Tablet"],
-    ["Lipiget", "Tablet"],
-    ["Amaryl", "Tablet"],
-    ["Ventolin Inhaler", "Inhaler"],
-    ["Hydryllin Syrup", "Syrup"],
-    ["Calcee", "Tablet"],
-    ["Surbex-Z", "Tablet"],
-    ["Zyrtec", "Tablet"],
-  ];
-  for (const [name, itemType] of legacy) {
-    const key = name.toLowerCase();
-    if (!byName.has(key)) byName.set(key, buildCatalogEntry(name, itemType));
-  }
-  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
-})();
+/** THS clinic final list only — see lib/ths-medicine-sheet-data.ts */
+export const medicineNameCatalog: MedicineNameCatalogEntry[] = THS_SHEET_MEDICINES.map((row) =>
+  buildCatalogEntry(row.name.trim(), row.itemType),
+).sort((a, b) => a.name.localeCompare(b.name));

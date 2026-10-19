@@ -35,7 +35,12 @@ export function MedicineListTable({
         <tbody>
           {items.map((item) => (
             <tr key={item.id}>
-              <td className="font-medium">{item.name}</td>
+              <td>
+                <p className="font-medium">{item.name}</p>
+                {!compact && item.categoryName ? (
+                  <p className="text-xs text-muted">{item.categoryName}</p>
+                ) : null}
+              </td>
               <td>{item.genericName}</td>
               <td>{item.strength}</td>
               {!compact && <td>{formatPkr(item.purchasePrice)}</td>}

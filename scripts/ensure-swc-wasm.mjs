@@ -4,8 +4,6 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const projectRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-
 /** SWC .wasm under OneDrive is often blocked or fails to load; use LocalAppData instead. */
 export function ensureSwcWasmDir() {
   const cacheRoot =

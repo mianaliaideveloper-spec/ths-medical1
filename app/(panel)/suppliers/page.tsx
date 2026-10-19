@@ -73,8 +73,8 @@ export default function SuppliersPage() {
             <Field label="Company"><input className={fieldClass} value={form.name} onChange={(e) => set("name", e.target.value)} required /></Field>
             <Field label="Contact person"><input className={fieldClass} value={form.contactPerson} onChange={(e) => set("contactPerson", e.target.value)} required /></Field>
             <Field label="Phone"><input className={fieldClass} value={form.phone} onChange={(e) => set("phone", e.target.value)} required /></Field>
-            <Field label="Email"><input className={fieldClass} type="email" value={form.email} onChange={(e) => set("email", e.target.value)} required /></Field>
-            <Field label="Address"><input className={fieldClass} value={form.address} onChange={(e) => set("address", e.target.value)} required /></Field>
+            <Field label="Email (optional)"><input className={fieldClass} type="email" value={form.email} onChange={(e) => set("email", e.target.value)} /></Field>
+            <Field label="Address (optional)"><input className={fieldClass} value={form.address} onChange={(e) => set("address", e.target.value)} /></Field>
             <Field label="City"><input className={fieldClass} value={form.city} onChange={(e) => set("city", e.target.value)} required /></Field>
             {error && <Notice>{error}</Notice>}
             <button className="rounded-lg bg-clinic px-4 py-2.5 text-sm font-semibold text-white">Save supplier</button>

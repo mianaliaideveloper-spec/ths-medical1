@@ -1,4 +1,4 @@
-import { readDeskSession, type DeskSession } from "./desk";
+import { readDeskSession, writeDeskSession, type DeskSession } from "./desk";
 
 /** Single store login — no sign-up. Change via env if needed. */
 export const FIXED_AUTH_UID = "local-ths-fixed-admin";
@@ -30,8 +30,6 @@ export function openFixedDeskSession(): DeskSession {
     name: existing?.uid === FIXED_AUTH_UID ? existing.name : FIXED_AUTH_NAME,
     photoURL: existing?.uid === FIXED_AUTH_UID ? existing.photoURL : undefined,
   };
-  if (typeof window !== "undefined") {
-    window.localStorage.setItem("ths-desk-session", JSON.stringify(session));
-  }
+  writeDeskSession(session);
   return session;
 }

@@ -27,10 +27,7 @@ export default function Home() {
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link href="/login" className="rounded-lg bg-white px-5 py-3 text-sm font-semibold text-clinic-dark">
-              Open the store desk
-            </Link>
-            <Link href="/dashboard" className="rounded-lg border border-white/40 px-5 py-3 text-sm font-semibold">
-              Go to dashboard
+              Login to store desk
             </Link>
           </div>
         </div>

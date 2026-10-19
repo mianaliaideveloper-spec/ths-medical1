@@ -4,26 +4,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
-import { inventorySummary, useStore } from "./store";
-
-const links = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/reception", label: "Reception" },
-  { href: "/doctor", label: "Doctor desk" },
-  { href: "/medicines", label: "All Medicines" },
-  { href: "/alerts", label: "Alerts" },
-  { href: "/suppliers", label: "Suppliers" },
-  { href: "/reports", label: "Reports" },
-  { href: "/print", label: "Print" },
-];
+import { panelNavLinks } from "@/lib/nav";
+import { useStore } from "./store";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { logout, medicines } = useStore();
+  const { logout } = useStore();
   const [open, setOpen] = useState(false);
-  const summary = inventorySummary(medicines);
-  const alertCount = summary.low + summary.expired + summary.expiring;
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[260px_1fr]">
@@ -46,24 +34,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span className="block text-xs text-white/75">Medical Center Store</span>
           </span>
         </Link>
-        <nav className="flex-1 space-y-1 px-3">
-          {links.map((link) => {
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-4">
+          {panelNavLinks.map((link) => {
             const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
             return (
               <Link
                 key={link.href}
                 href={link.href}
                 onClick={() => setOpen(false)}
-                className={`flex items-center justify-between rounded-lg px-3 py-2.5 text-sm ${
+                className={`block rounded-lg px-3 py-2.5 text-sm ${
                   active ? "bg-white text-ths-dark font-semibold" : "text-white/90 hover:bg-white/10"
                 }`}
               >
                 {link.label}
-                {link.href === "/alerts" && alertCount > 0 && (
-                  <span className={`rounded-full px-2 py-0.5 text-xs ${active ? "bg-danger text-white" : "bg-white/20"}`}>
-                    {alertCount}
-                  </span>
-                )}
               </Link>
             );
           })}
@@ -77,8 +60,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             Menu
           </button>
-          <p className="text-sm font-medium text-ths-dark">THS Medical</p>
-          <div className="ml-auto flex items-center gap-2 sm:gap-3">
+          <div className="ml-auto flex items-center gap-2 sm:gap-3 lg:ml-0 lg:flex-1 lg:justify-end">
             <Link
               href="/profile"
               className="rounded-lg border border-line px-3 py-2 text-sm font-medium text-ths-dark hover:bg-ths-soft"

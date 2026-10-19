@@ -34,9 +34,9 @@ export default function DashboardPage() {
       </Card>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Total medicines" value={summary.total} hint="In inventory" href="/medicines" tone="blue" />
-        <StatCard label="Available stock" value={summary.availableUnits} hint={`${summary.availableSkus} items in date`} href="/medicines" tone="green" />
-        <StatCard label="Low-stock medicines" value={summary.low} hint="Less than 10 units or out" href="/alerts" tone="amber" />
-        <StatCard label="Expired medicines" value={summary.expired} hint={`${summary.expiring} expiring within 90 days`} href="/alerts" tone="red" />
+        <StatCard label="Available stock" value={summary.availableUnits} hint={`${summary.availableSkus} items in date`} href="/current-stock" tone="green" />
+        <StatCard label="Low-stock medicines" value={summary.low} hint="Less than 10 units or out" href="/low-stock-report" tone="amber" />
+        <StatCard label="Expired medicines" value={summary.expired} hint={`${summary.expiring} expiring within 90 days`} href="/expiry-report" tone="red" />
       </div>
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
         <Card className="p-5 lg:col-span-2">

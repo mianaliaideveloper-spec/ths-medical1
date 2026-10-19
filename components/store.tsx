@@ -1,16 +1,54 @@
 "use client";
 
-import { signOut } from "firebase/auth";
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  onSnapshot,
-  runTransaction,
-  setDoc,
-  updateDoc,
-} from "firebase/firestore";
+import type { DocumentData, QuerySnapshot, Transaction } from "firebase/firestore";
+
+type FirestoreApi = typeof import("firebase/firestore");
+let firestoreApi: FirestoreApi | null = null;
+
+async function loadFirestoreApi() {
+  firestoreApi ??= await import("firebase/firestore");
+  return firestoreApi;
+}
+
+async function loadFirebaseClient() {
+  const { getFirebase } = await import("@/lib/firebase");
+  return getFirebase();
+}
+
+function collection(...args: unknown[]): ReturnType<FirestoreApi["collection"]> {
+  if (!firestoreApi) throw new Error("Database is still loading. Try again in a moment.");
+  return Reflect.apply(firestoreApi.collection, firestoreApi, args) as ReturnType<FirestoreApi["collection"]>;
+}
+
+function deleteDoc(...args: unknown[]): ReturnType<FirestoreApi["deleteDoc"]> {
+  if (!firestoreApi) throw new Error("Database is still loading. Try again in a moment.");
+  return Reflect.apply(firestoreApi.deleteDoc, firestoreApi, args) as ReturnType<FirestoreApi["deleteDoc"]>;
+}
+
+function doc(...args: unknown[]): ReturnType<FirestoreApi["doc"]> {
+  if (!firestoreApi) throw new Error("Database is still loading. Try again in a moment.");
+  return Reflect.apply(firestoreApi.doc, firestoreApi, args) as ReturnType<FirestoreApi["doc"]>;
+}
+
+function onSnapshot(...args: unknown[]): ReturnType<FirestoreApi["onSnapshot"]> {
+  if (!firestoreApi) throw new Error("Database is still loading. Try again in a moment.");
+  return Reflect.apply(firestoreApi.onSnapshot, firestoreApi, args) as ReturnType<FirestoreApi["onSnapshot"]>;
+}
+
+function runTransaction(...args: unknown[]): ReturnType<FirestoreApi["runTransaction"]> {
+  if (!firestoreApi) throw new Error("Database is still loading. Try again in a moment.");
+  return Reflect.apply(firestoreApi.runTransaction, firestoreApi, args) as ReturnType<FirestoreApi["runTransaction"]>;
+}
+
+function updateDoc(...args: unknown[]): ReturnType<FirestoreApi["updateDoc"]> {
+  if (!firestoreApi) throw new Error("Database is still loading. Try again in a moment.");
+  return Reflect.apply(firestoreApi.updateDoc, firestoreApi, args) as ReturnType<FirestoreApi["updateDoc"]>;
+}
+
+function addDoc(...args: unknown[]): ReturnType<FirestoreApi["addDoc"]> {
+  if (!firestoreApi) throw new Error("Database is still loading. Try again in a moment.");
+  return Reflect.apply(firestoreApi.addDoc, firestoreApi, args) as ReturnType<FirestoreApi["addDoc"]>;
+}
 import {
   createContext,
   useContext,
@@ -26,6 +64,7 @@ import {
   readDeskData,
   readDeskSession,
   writeDeskData,
+  writeDeskSession,
   type DeskSession,
 } from "@/lib/desk";
 import {
@@ -36,28 +75,45 @@ import {
   openFixedDeskSession,
   verifyFixedCredentials,
 } from "@/lib/fixed-auth";
-import { getFirebase, resolveFirebaseConfig } from "@/lib/firebase";
 import { prepareMedicineForSave } from "@/lib/medicine-save";
+import {
+  applyThsInStockDefaults,
+  buildThsSheetMedicineRows,
+  ensureThsSheetCategories,
+  ensureThsSheetSupplier,
+  isThsCatalogMedicineName,
+  restockThsCatalogMedicines,
+  THS_SHEET_SUPPLIER_NAME,
+  thsSheetCatalogSize,
+} from "@/lib/ths-sheet-inventory";
 import {
   nextSlipNumber,
   nextTokenNumber,
   normalizeReceptionVisits,
   RECEPTION_SLIP_FEE_PKR,
+  validateReceptionInput,
 } from "@/lib/reception";
 import {
+  daysUntil,
   isExpired,
   isExpiringSoon,
   isLowStock,
   isOutOfStock,
 } from "@/lib/format";
+import { applyCustomerBillStockLocal } from "@/lib/issue-customer-bill";
+import type { BillCartRow } from "@/lib/bill";
 import type {
   AdminProfile,
+  BillIssueSummary,
   Category,
   Medicine,
   MedicineInput,
   ProfileUpdateInput,
+  PrescribedMedicine,
   ReceptionVisit,
   ReceptionVisitInput,
+  RentItem,
+  RentItemInput,
   StockMovement,
   StockType,
   Supplier,
@@ -74,8 +130,10 @@ type StoreContextValue = {
   suppliers: Supplier[];
   movements: StockMovement[];
   receptionVisits: ReceptionVisit[];
+  rentItems: RentItem[];
   registerReceptionVisit: (input: ReceptionVisitInput) => Promise<ReceptionVisit>;
   markReceptionMedicineIssued: (id: string) => Promise<void>;
+  saveReceptionPrescription: (id: string, prescription: PrescribedMedicine[], doctorNote: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -92,10 +150,19 @@ type StoreContextValue = {
     quantity: number,
     note: string,
   ) => Promise<void>;
+  saveRentItem: (input: RentItemInput, id?: string) => Promise<void>;
+  deleteRentItem: (id: string) => Promise<void>;
+  issueCustomerBill: (rows: BillCartRow[]) => Promise<BillIssueSummary[]>;
   syncLocalInventory: (data: ReturnType<typeof readDeskData>) => void;
+  importThsSheetCatalog: () => Promise<{ added: number; total: number; catalogSize: number }>;
+  markThsCatalogInStock: () => Promise<{ updated: number }>;
 };
 
 const StoreContext = createContext<StoreContextValue | null>(null);
+
+function inventoryRevision(medicines: Medicine[]) {
+  return medicines.map((item) => `${item.id}:${item.updatedAt}:${item.quantity}`).join("|");
+}
 
 function openLocalSession(
   session: DeskSession,
@@ -106,6 +173,7 @@ function openLocalSession(
   setSuppliers: (value: Supplier[]) => void,
   setMovements: (value: StockMovement[]) => void,
   setReceptionVisits: (value: ReceptionVisit[]) => void,
+  setRentItems: (value: RentItem[]) => void,
 ) {
   const data = readDeskData();
   const account = readDeskAccount(session.uid);
@@ -123,15 +191,22 @@ function openLocalSession(
   setSuppliers(data.suppliers);
   setMovements(data.movements);
   setReceptionVisits(normalizeReceptionVisits(data.receptionVisits ?? []));
+  setRentItems((data.rentItems ?? []).sort((a, b) => a.name.localeCompare(b.name)));
 }
 
 function mapDoc<T>(id: string, data: Record<string, unknown>): T {
   return { id, ...data } as T;
 }
 
+function withoutId<T extends { id: string }>(item: T): Omit<T, "id"> {
+  const { id, ...payload } = item;
+  void id;
+  return payload;
+}
+
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
-  const [configured, setConfigured] = useState(false);
+  const [configured] = useState(true);
   const [user, setUser] = useState<DeskSession | null>(null);
   const [admin, setAdmin] = useState<AdminProfile | null>(null);
   const [authError, setAuthError] = useState("");
@@ -140,9 +215,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [receptionVisits, setReceptionVisits] = useState<ReceptionVisit[]>([]);
+  const [rentItems, setRentItems] = useState<RentItem[]>([]);
 
+  // Restore the local desk session once before enabling protected pages.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    setConfigured(Boolean(resolveFirebaseConfig()));
     const desk = readDeskSession();
     if (desk && isFixedStoreUser(desk.uid)) {
       const data = readDeskData();
@@ -160,75 +237,73 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setSuppliers(data.suppliers);
       setMovements(data.movements);
       setReceptionVisits(normalizeReceptionVisits(data.receptionVisits ?? []));
+      setRentItems((data.rentItems ?? []).sort((a, b) => a.name.localeCompare(b.name)));
       setReady(true);
       return;
     }
     if (desk) clearDeskSession();
-    void (async () => {
-      try {
-        const firebase = getFirebase();
-        await signOut(firebase.auth);
-      } catch {
-        /* ignore */
-      }
-      setUser(null);
-      setAdmin(null);
-      setReady(true);
-    })();
+    setUser(null);
+    setAdmin(null);
+    setReady(true);
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
-    const firebase = getFirebase();
-    if (!firebase || !user || isLocalAdmin(user.uid)) return;
-    const unsubMeds = onSnapshot(collection(firebase.db, "medicines"), (snap) => {
-      setMedicines(
-        snap.docs
-          .map((item) => mapDoc<Medicine>(item.id, item.data()))
-          .sort((a, b) => a.name.localeCompare(b.name)),
-      );
-    });
-    const unsubCats = onSnapshot(collection(firebase.db, "categories"), (snap) => {
-      setCategories(
-        snap.docs
-          .map((item) => mapDoc<Category>(item.id, item.data()))
-          .sort((a, b) => a.name.localeCompare(b.name)),
-      );
-    });
-    const unsubSuppliers = onSnapshot(collection(firebase.db, "suppliers"), (snap) => {
-      setSuppliers(
-        snap.docs
-          .map((item) => mapDoc<Supplier>(item.id, item.data()))
-          .sort((a, b) => a.name.localeCompare(b.name)),
-      );
-    });
-    const unsubMoves = onSnapshot(collection(firebase.db, "stockMovements"), (snap) => {
-      setMovements(
-        snap.docs
-          .map((item) => mapDoc<StockMovement>(item.id, item.data()))
-          .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-      );
-    });
-    const unsubReception = onSnapshot(collection(firebase.db, "receptionVisits"), (snap) => {
-      setReceptionVisits(
-        normalizeReceptionVisits(
+    if (!user || isLocalAdmin(user.uid)) return;
+    let active = true;
+    const unsubscribers: Array<() => void> = [];
+    void Promise.all([loadFirebaseClient(), loadFirestoreApi()]).then(([firebase]) => {
+      if (!active) return;
+      const unsubMeds = onSnapshot(collection(firebase.db, "medicines"), (snap: QuerySnapshot<DocumentData>) => {
+        setMedicines(
           snap.docs
-            .map((item) => mapDoc<ReceptionVisit>(item.id, item.data()))
+            .map((item) => mapDoc<Medicine>(item.id, item.data()))
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        );
+      });
+      const unsubCats = onSnapshot(collection(firebase.db, "categories"), (snap: QuerySnapshot<DocumentData>) => {
+        setCategories(
+          snap.docs
+            .map((item) => mapDoc<Category>(item.id, item.data()))
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        );
+      });
+      const unsubSuppliers = onSnapshot(collection(firebase.db, "suppliers"), (snap: QuerySnapshot<DocumentData>) => {
+        setSuppliers(
+          snap.docs
+            .map((item) => mapDoc<Supplier>(item.id, item.data()))
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        );
+      });
+      const unsubMoves = onSnapshot(collection(firebase.db, "stockMovements"), (snap: QuerySnapshot<DocumentData>) => {
+        setMovements(
+          snap.docs
+            .map((item) => mapDoc<StockMovement>(item.id, item.data()))
             .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-        ),
-      );
+        );
+      });
+      const unsubReception = onSnapshot(collection(firebase.db, "receptionVisits"), (snap: QuerySnapshot<DocumentData>) => {
+        setReceptionVisits(
+          normalizeReceptionVisits(
+            snap.docs
+              .map((item) => mapDoc<ReceptionVisit>(item.id, item.data()))
+              .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+          ),
+        );
+      });
+      unsubscribers.push(unsubMeds, unsubCats, unsubSuppliers, unsubMoves, unsubReception);
+    }).catch((error: unknown) => {
+      console.error("Could not connect to the medicine database.", error);
     });
     return () => {
-      unsubMeds();
-      unsubCats();
-      unsubSuppliers();
-      unsubMoves();
-      unsubReception();
+      active = false;
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
   }, [user]);
 
   const value = useMemo<StoreContextValue>(() => {
-    const firebaseOrThrow = () => {
-      const firebase = getFirebase();
+    const firebaseOrThrow = async () => {
+      const [firebase] = await Promise.all([loadFirebaseClient(), loadFirestoreApi()]);
       if (!firebase) throw new Error("Firebase is not configured.");
       return firebase;
     };
@@ -244,25 +319,162 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       suppliers,
       movements,
       receptionVisits,
+      async saveReceptionPrescription(id, prescription, doctorNote) {
+        const prescribedAt = new Date().toISOString();
+        const update = (item: ReceptionVisit) => item.id === id
+          ? { ...item, prescription, doctorNote: doctorNote.trim(), prescribedAt, status: "waiting_reception" as const }
+          : item;
+        if (isLocalAdmin(user?.uid)) {
+          const data = readDeskData();
+          data.receptionVisits = (data.receptionVisits ?? []).map(update);
+          writeDeskData(data);
+          setReceptionVisits(normalizeReceptionVisits(data.receptionVisits ?? []));
+          return;
+        }
+        const firebase = await firebaseOrThrow();
+        await updateDoc(doc(firebase.db, "receptionVisits", id), {
+          prescription, doctorNote: doctorNote.trim(), prescribedAt, status: "waiting_reception",
+        });
+      },
+      rentItems,
       syncLocalInventory(data) {
-        setMedicines(data.medicines);
-        setCategories(data.categories);
-        setSuppliers(data.suppliers);
-        setMovements(data.movements);
-        setReceptionVisits(normalizeReceptionVisits(data.receptionVisits ?? []));
+        setMedicines((current) =>
+          inventoryRevision(current) === inventoryRevision(data.medicines) ? current : data.medicines,
+        );
+        setCategories((current) =>
+          current.length === data.categories.length &&
+          current.every((item, index) => item.id === data.categories[index]?.id)
+            ? current
+            : data.categories,
+        );
+        setSuppliers((current) =>
+          current.length === data.suppliers.length &&
+          current.every((item, index) => item.id === data.suppliers[index]?.id)
+            ? current
+            : data.suppliers,
+        );
+        setMovements((current) =>
+          current.length === data.movements.length &&
+          current.every((item, index) => item.id === data.movements[index]?.id)
+            ? current
+            : data.movements,
+        );
+        setReceptionVisits((current) => {
+          const next = normalizeReceptionVisits(data.receptionVisits ?? []);
+          return current.length === next.length &&
+            current.every(
+              (item, index) =>
+                item.id === next[index]?.id && item.status === next[index]?.status,
+            )
+            ? current
+            : next;
+        });
+        setRentItems((current) => {
+          const next = (data.rentItems ?? []).sort((a, b) => a.name.localeCompare(b.name));
+          return current.length === next.length &&
+            current.every((item, index) => item.id === next[index]?.id && item.quantity === next[index]?.quantity)
+            ? current
+            : next;
+        });
+      },
+      async importThsSheetCatalog() {
+        const catalogSize = thsSheetCatalogSize();
+
+        if (isLocalAdmin(user?.uid)) {
+          const data = readDeskData();
+          data.categories = ensureThsSheetCategories(data.categories);
+          const supplier = ensureThsSheetSupplier(data.suppliers);
+          if (!data.suppliers.some((item) => item.id === supplier.id)) {
+            data.suppliers.push(supplier);
+          }
+          const newRows = buildThsSheetMedicineRows(data.medicines, data.categories, supplier);
+          data.medicines = [...data.medicines, ...newRows];
+          const restocked = restockThsCatalogMedicines(data.medicines);
+          data.medicines = restocked.medicines.sort((a, b) => a.name.localeCompare(b.name));
+          writeDeskData(data);
+          setCategories(data.categories);
+          setSuppliers(data.suppliers);
+          setMedicines(data.medicines);
+          return { added: newRows.length, total: data.medicines.length, catalogSize };
+        }
+
+        const firebase = await firebaseOrThrow();
+        const categoryByName = new Map(categories.map((item) => [item.name, item]));
+        for (const cat of ensureThsSheetCategories([...categoryByName.values()])) {
+          if (categoryByName.has(cat.name)) continue;
+          const ref = await addDoc(collection(firebase.db, "categories"), {
+            name: cat.name,
+            description: cat.description,
+          });
+          categoryByName.set(cat.name, { id: ref.id, name: cat.name, description: cat.description });
+        }
+        const nextCategories = [...categoryByName.values()].sort((a, b) => a.name.localeCompare(b.name));
+        setCategories(nextCategories);
+
+        let supplier = suppliers.find((item) => item.name === THS_SHEET_SUPPLIER_NAME);
+        if (!supplier) {
+          const draft = ensureThsSheetSupplier([]);
+          const ref = await addDoc(collection(firebase.db, "suppliers"), {
+            name: draft.name,
+            contactPerson: draft.contactPerson,
+            phone: draft.phone,
+            email: draft.email,
+            address: draft.address,
+            city: draft.city,
+          });
+          supplier = { ...draft, id: ref.id };
+          setSuppliers((current) => [...current, supplier!].sort((a, b) => a.name.localeCompare(b.name)));
+        }
+
+        const newRows = buildThsSheetMedicineRows(medicines, nextCategories, supplier);
+        for (const row of newRows) {
+          const payload = withoutId(row);
+          await addDoc(collection(firebase.db, "medicines"), payload);
+        }
+        return { added: newRows.length, total: medicines.length + newRows.length, catalogSize };
+      },
+      async markThsCatalogInStock() {
+        if (isLocalAdmin(user?.uid)) {
+          const data = readDeskData();
+          const restocked = restockThsCatalogMedicines(data.medicines);
+          if (restocked.count === 0) return { updated: 0 };
+          data.medicines = restocked.medicines.sort((a, b) => a.name.localeCompare(b.name));
+          writeDeskData(data);
+          setMedicines(data.medicines);
+          return { updated: restocked.count };
+        }
+
+        const firebase = await firebaseOrThrow();
+        let updated = 0;
+        for (const med of medicines) {
+          if (!isThsCatalogMedicineName(med.name)) continue;
+          const needsQty = med.quantity <= 0;
+          const needsExpiry = !med.expiryDate || daysUntil(med.expiryDate) < 0;
+          if (!needsQty && !needsExpiry) continue;
+          const next = applyThsInStockDefaults(med);
+          await updateDoc(doc(firebase.db, "medicines", med.id), {
+            quantity: next.quantity,
+            manufacturingDate: next.manufacturingDate,
+            expiryDate: next.expiryDate,
+            updatedAt: next.updatedAt,
+          });
+          updated += 1;
+        }
+        return { updated };
       },
       async registerReceptionVisit(input) {
+        const validated = validateReceptionInput(input);
         const now = new Date().toISOString();
         const tokenNumber = nextTokenNumber(receptionVisits);
         const visit: ReceptionVisit = {
           id: crypto.randomUUID(),
           tokenNumber,
           slipNumber: nextSlipNumber(receptionVisits),
-          patientName: input.patientName.trim(),
-          cnic: input.cnic.trim(),
-          age: Math.max(0, Math.floor(Number(input.age))),
-          complaint: input.complaint.trim(),
-          phone: input.phone?.trim() || "",
+          patientName: validated.patientName,
+          cnic: validated.cnic,
+          age: validated.age,
+          complaint: validated.complaint,
+          phone: validated.phone,
           slipFee: RECEPTION_SLIP_FEE_PKR,
           status: "waiting_doctor",
           createdAt: now,
@@ -275,8 +487,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setReceptionVisits(normalizeReceptionVisits(data.receptionVisits ?? []));
           return visit;
         }
-        const firebase = firebaseOrThrow();
-        const { id: _id, ...payload } = visit;
+        const firebase = await firebaseOrThrow();
+        const payload = withoutId(visit);
         const ref = await addDoc(collection(firebase.db, "receptionVisits"), payload);
         const saved = { ...visit, id: ref.id };
         setReceptionVisits((current) => [saved, ...current]);
@@ -295,7 +507,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setReceptionVisits(normalizeReceptionVisits(data.receptionVisits ?? []));
           return;
         }
-        const firebase = firebaseOrThrow();
+        const firebase = await firebaseOrThrow();
         await updateDoc(doc(firebase.db, "receptionVisits", id), {
           status: "medicine_issued",
           medicineIssuedAt: issuedAt,
@@ -305,12 +517,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setAuthError("");
         if (!verifyFixedCredentials(email, password)) {
           throw new Error("Username or password is incorrect.");
-        }
-        try {
-          const firebase = getFirebase();
-          await signOut(firebase.auth);
-        } catch {
-          /* ignore */
         }
         const session = openFixedDeskSession();
         openLocalSession(
@@ -322,6 +528,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setSuppliers,
           setMovements,
           setReceptionVisits,
+          setRentItems,
         );
       },
       async register() {
@@ -331,8 +538,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         clearDeskSession();
         setUser(null);
         setAdmin(null);
-        const firebase = getFirebase();
-        if (firebase) await signOut(firebase.auth).catch(() => undefined);
       },
       async updateProfile(input: ProfileUpdateInput) {
         if (!user) throw new Error("Not signed in.");
@@ -349,7 +554,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           name: input.name.trim() || FIXED_AUTH_NAME,
           photoURL: photo,
         };
-        window.localStorage.setItem("ths-desk-session", JSON.stringify(session));
+        writeDeskSession(session);
         setUser(session);
         setAdmin({
           uid: session.uid,
@@ -374,7 +579,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setMedicines(data.medicines);
           return;
         }
-        const firebase = firebaseOrThrow();
+        const firebase = await firebaseOrThrow();
         const now = new Date().toISOString();
         if (id) {
           await updateDoc(doc(firebase.db, "medicines", id), { ...payload, updatedAt: now });
@@ -394,7 +599,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setMedicines(data.medicines);
           return;
         }
-        const firebase = firebaseOrThrow();
+        const firebase = await firebaseOrThrow();
         await deleteDoc(doc(firebase.db, "medicines", id));
       },
       async saveCategory(input, id) {
@@ -414,7 +619,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setMedicines(data.medicines);
           return;
         }
-        const firebase = firebaseOrThrow();
+        const firebase = await firebaseOrThrow();
         if (id) {
           await updateDoc(doc(firebase.db, "categories", id), input);
           const related = medicines.filter((item) => item.categoryId === id);
@@ -440,7 +645,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setCategories(data.categories);
           return;
         }
-        const firebase = firebaseOrThrow();
+        const firebase = await firebaseOrThrow();
         await deleteDoc(doc(firebase.db, "categories", id));
       },
       async saveSupplier(input, id) {
@@ -460,7 +665,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setMedicines(data.medicines);
           return;
         }
-        const firebase = firebaseOrThrow();
+        const firebase = await firebaseOrThrow();
         if (id) {
           await updateDoc(doc(firebase.db, "suppliers", id), input);
           const related = medicines.filter((item) => item.supplierId === id);
@@ -486,7 +691,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setSuppliers(data.suppliers);
           return;
         }
-        const firebase = firebaseOrThrow();
+        const firebase = await firebaseOrThrow();
         await deleteDoc(doc(firebase.db, "suppliers", id));
       },
       async adjustStock(medicineId, type, quantity, note) {
@@ -525,8 +730,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setMovements(data.movements);
           return;
         }
-        const firebase = firebaseOrThrow();
-        await runTransaction(firebase.db, async (tx) => {
+        const firebase = await firebaseOrThrow();
+        await runTransaction(firebase.db, async (tx: Transaction) => {
           const ref = doc(firebase.db, "medicines", medicineId);
           const snap = await tx.get(ref);
           if (!snap.exists()) throw new Error("Medicine was not found.");
@@ -552,6 +757,52 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           });
         });
       },
+      async saveRentItem(input, id) {
+        const payload = {
+          name: input.name.trim(),
+          rentPrice: Math.max(0, Number(input.rentPrice) || 0),
+          quantity: Math.max(0, Math.floor(Number(input.quantity) || 0)),
+          unit: input.unit.trim() || "unit",
+          note: input.note.trim(),
+        };
+        if (!payload.name) throw new Error("Enter a rent item name.");
+        if (isLocalAdmin(user?.uid)) {
+          const data = readDeskData();
+          const now = new Date().toISOString();
+          const list = data.rentItems ?? [];
+          data.rentItems = id
+            ? list.map((item) => (item.id === id ? { ...item, ...payload, updatedAt: now } : item))
+            : [...list, { ...payload, id: crypto.randomUUID(), updatedAt: now }];
+          data.rentItems.sort((a, b) => a.name.localeCompare(b.name));
+          writeDeskData(data);
+          setRentItems(data.rentItems);
+          return;
+        }
+        throw new Error("Rent items are saved on this desk only (local login).");
+      },
+      async deleteRentItem(id) {
+        if (isLocalAdmin(user?.uid)) {
+          const data = readDeskData();
+          data.rentItems = (data.rentItems ?? []).filter((item) => item.id !== id);
+          writeDeskData(data);
+          setRentItems(data.rentItems);
+          return;
+        }
+        throw new Error("Rent items are saved on this desk only (local login).");
+      },
+      async issueCustomerBill(rows) {
+        const note = "Customer bill";
+        if (!isLocalAdmin(user?.uid)) {
+          throw new Error("Bill saving with stock update is available on the store desk login on this computer.");
+        }
+        const data = readDeskData();
+        const result = applyCustomerBillStockLocal(data, rows, user?.email || "admin", note);
+        writeDeskData(result.data);
+        setMedicines(result.data.medicines);
+        setMovements(result.data.movements);
+        setRentItems(result.data.rentItems ?? []);
+        return result.summary;
+      },
     };
   }, [
     admin,
@@ -561,6 +812,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     medicines,
     movements,
     receptionVisits,
+    rentItems,
     ready,
     suppliers,
     user,
@@ -588,3 +840,4 @@ export function inventorySummary(medicines: Medicine[]) {
     saleValue: available.reduce((sum, item) => sum + item.quantity * item.salePrice, 0),
   };
 }
+

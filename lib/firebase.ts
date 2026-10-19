@@ -1,5 +1,4 @@
 import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
-import { getAuth, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
 import type { FirebaseWebConfig } from "./types";
 
@@ -55,26 +54,18 @@ export function resolveFirebaseConfig(): FirebaseWebConfig {
 }
 
 let app: FirebaseApp | null = null;
-let auth: Auth | null = null;
 let db: Firestore | null = null;
 
 export function getFirebase() {
   const config = resolveFirebaseConfig();
   if (!app) {
     app = getApps()[0] ?? initializeApp(config);
-    auth = getAuth(app);
     db = getFirestore(app);
-    if (typeof window !== "undefined") {
-      void import("firebase/analytics").then(async ({ getAnalytics, isSupported }) => {
-        if (app && (await isSupported())) getAnalytics(app);
-      });
-    }
   }
-  return { app, auth: auth!, db: db! };
+  return { app, db: db! };
 }
 
 export function resetFirebase() {
   app = null;
-  auth = null;
   db = null;
 }

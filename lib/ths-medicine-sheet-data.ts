@@ -1,6 +1,8 @@
 /**
- * THS Medical Center medicine list (from clinic spreadsheet).
+ * THS Medical Center final medicine list (clinic spreadsheet).
  * Source: https://docs.google.com/spreadsheets/d/1E5alXvmfh8dGeuI7yGWDzN7mwOaFC6DS
+ * Regenerate: download CSV to %TEMP%\ths-med.csv then `node scripts/sync-ths-sheet-data.mjs`
+ * Items: 119
  */
 export type ThsSheetMedicineRow = {
   name: string;
@@ -106,4 +108,25 @@ export const THS_SHEET_MEDICINES: ThsSheetMedicineRow[] = [
   { name: "D/S 3cc", itemType: "Medical Item" },
   { name: "D/S 5cc", itemType: "Medical Item" },
   { name: "D/S 10cc", itemType: "Medical Item" },
+  { name: "Spirit 1 Liter", itemType: "Medical Item" },
+  { name: "Pyodine 450ml", itemType: "Medical Item" },
+  { name: "Gauze", itemType: "Medical Item" },
+  { name: "N/S 1000ml", itemType: "Medical Item" },
+  { name: "BSR Strips", itemType: "Medical Item" },
+  { name: "Face Mask", itemType: "Medical Item" },
+  { name: "Butterfly", itemType: "Medical Item" },
+  { name: "Cotton Bandage", itemType: "Medical Item" },
+  { name: "Calic Drops", itemType: "Drops" },
+  { name: "Betamethasone Drops", itemType: "Drops" },
+  { name: "Eye Drops", itemType: "Drops" },
+  { name: "Soda Glycerin Drops", itemType: "Drops" },
+  { name: "Histazine Drops", itemType: "Drops" },
+  { name: "Lidospin Drops", itemType: "Drops" },
+  { name: "Ventoline Drops", itemType: "Drops" },
+  { name: "Polytears Drops", itemType: "Drops" },
+  { name: "ORS", itemType: "Pkt" },
+  { name: "Citro Soda", itemType: "Pkt" },
+  { name: "Flagyl Syrup", itemType: "Syrup" },
+  { name: "Nitto Tape", itemType: "Tape" },
+  { name: "Citralka", itemType: "Syrup" },
 ];

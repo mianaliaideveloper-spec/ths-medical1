@@ -20,7 +20,10 @@ export default function AlertsPage() {
 
   return (
     <div>
-      <PageHeader title="Alerts" description="Low stock and expiry notifications for the pharmacy desk." />
+      <PageHeader
+        title="Alerts"
+        description="Use Low Stock Report and Expiry Report from the main menu. This page shows both together."
+      />
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>
           <div className="border-b border-line px-5 py-4">

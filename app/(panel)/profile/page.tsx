@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { SecretInput } from "@/components/secret-input";
 import { Card, Field, Notice, PageHeader, fieldClass } from "@/components/shell";
 import { useStore } from "@/components/store";
@@ -24,24 +24,13 @@ async function readPhotoFile(file: File): Promise<string> {
 
 export default function ProfilePage() {
   const { admin, user, updateProfile } = useStore();
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [photoURL, setPhotoURL] = useState("");
-  const [photoLoaded, setPhotoLoaded] = useState(false);
+  const [name, setName] = useState(admin?.name || user?.name || "");
+  const [email] = useState(admin?.email || user?.email || "");
+  const [photoURL, setPhotoURL] = useState(admin?.photoURL ?? user?.photoURL ?? "");
   const [currentPassword, setCurrentPassword] = useState("");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!admin && !user) return;
-    setName(admin?.name || user?.name || "");
-    setEmail(admin?.email || user?.email || "");
-    if (!photoLoaded) {
-      setPhotoURL(admin?.photoURL ?? user?.photoURL ?? "");
-      setPhotoLoaded(true);
-    }
-  }, [admin, user, photoLoaded]);
 
   async function onPhotoChange(event: React.ChangeEvent<HTMLInputElement>) {
     setError("");

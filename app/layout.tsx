@@ -1,12 +1,6 @@
 import type { Metadata } from "next";
-import { Source_Sans_3 } from "next/font/google";
 import { StoreProvider } from "@/components/store";
 import "./globals.css";
-
-const sourceSans = Source_Sans_3({
-  variable: "--font-source",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Taleem-o-Hunar Medical Center | Medicine Store",
@@ -15,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${sourceSans.variable} h-full antialiased`}>
+    <html lang="en" className="h-full antialiased">
       <body className="min-h-full">
         <StoreProvider>{children}</StoreProvider>
       </body>

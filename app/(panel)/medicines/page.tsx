@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card, EmptyState, PageHeader } from "@/components/shell";
 import { MedicineNameAutocomplete } from "@/components/medicine-autocomplete";
@@ -9,20 +9,42 @@ import { MedicineListTable } from "@/components/medicine-list";
 import { useStore } from "@/components/store";
 import { isExpired } from "@/lib/format";
 import { sortMedicinesForDisplay } from "@/lib/medicine-sort";
+import { thsSheetCatalogSize } from "@/lib/ths-sheet-inventory";
 
 type ListFilter = "all" | "expired";
 
 function MedicinesTable() {
   const params = useSearchParams();
-  const { medicines, deleteMedicine } = useStore();
+  const { medicines, deleteMedicine, importThsSheetCatalog, markThsCatalogInStock } = useStore();
   const [query, setQuery] = useState(params.get("q") || "");
   const [filter, setFilter] = useState<ListFilter>(params.get("filter") === "expired" ? "expired" : "all");
+  const [importNote, setImportNote] = useState("");
+  const [importBusy, setImportBusy] = useState(false);
+  const catalogSize = thsSheetCatalogSize();
 
-  useEffect(() => {
-    const q = params.get("q");
-    if (q) setQuery(q);
-    setFilter(params.get("filter") === "expired" ? "expired" : "all");
-  }, [params]);
+  const urlQuery = params.get("q") || "";
+  const urlFilter: ListFilter = params.get("filter") === "expired" ? "expired" : "all";
+  if (query !== urlQuery) setQuery(urlQuery);
+  if (filter !== urlFilter) setFilter(urlFilter);
+
+  async function onSyncCatalog() {
+    setImportBusy(true);
+    setImportNote("");
+    try {
+      await importThsSheetCatalog();
+      const restock = await markThsCatalogInStock();
+      setImportNote(
+        restock.updated > 0
+          ? `Updated ${restock.updated} medicines to in stock (quantity 10, dates refreshed).`
+          : `THS list is up to date — ${medicines.length} medicines, all catalog items already in stock.`,
+      );
+    } catch (err) {
+      setImportNote(err instanceof Error ? err.message : "Could not sync the clinic list.");
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   const rows = useMemo(() => {
@@ -39,10 +61,18 @@ function MedicinesTable() {
   return (
     <div>
       <PageHeader
-        title="All medicines"
-        description="Out-of-stock items appear at the end. Use Expired items to review batches past expiry."
+        title="Medicine Master"
+        description={`Final clinic list: ${catalogSize} names. Use Sync THS list when you want to add missing items to inventory.`}
         action={
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={importBusy}
+              onClick={() => void onSyncCatalog()}
+              className="rounded-lg border border-line bg-white px-4 py-2.5 text-sm font-semibold hover:bg-ths-soft disabled:opacity-60"
+            >
+              {importBusy ? "Syncing…" : "Sync THS list"}
+            </button>
             <Link
               href="/medicines"
               className={`rounded-lg px-4 py-2.5 text-sm font-semibold ${filter === "all" ? "bg-ths text-white" : "border border-line bg-white"}`}
@@ -55,12 +85,18 @@ function MedicinesTable() {
             >
               Expired items
             </Link>
+            <Link href="/clinic-list" className="rounded-lg border border-line bg-white px-4 py-2.5 text-sm font-semibold hover:bg-ths-soft">
+              View final list
+            </Link>
             <Link href="/medicines/new" className="rounded-lg bg-ths px-4 py-2.5 text-sm font-semibold text-white hover:bg-ths-dark">
               Add medicine
             </Link>
           </div>
         }
       />
+      {importNote && (
+        <p className="mb-4 rounded-xl border border-ths/30 bg-ths-soft px-4 py-3 text-sm text-ths-dark">{importNote}</p>
+      )}
       <Card className="mb-4 p-4">
         <MedicineNameAutocomplete
           label="Search medicine"

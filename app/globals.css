@@ -28,13 +28,13 @@
   --color-muted: var(--muted);
   --color-danger: var(--danger);
   --color-warning: var(--warning);
-  --font-sans: var(--font-source);
+  --font-sans: "Segoe UI", Arial, sans-serif;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-source), "Segoe UI", sans-serif;
+  font-family: "Segoe UI", Arial, sans-serif;
 }
 
 button,

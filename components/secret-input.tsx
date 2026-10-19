@@ -8,7 +8,7 @@ type SecretInputProps = {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
-  /** Allow only digits (for print codes like 55828). */
+  /** Allow only digits (for numeric access codes). */
   digitsOnly?: boolean;
   maxLength?: number;
   autoComplete?: string;

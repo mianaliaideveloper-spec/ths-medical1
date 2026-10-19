@@ -23,7 +23,7 @@ export default function LoginPage() {
     event.preventDefault();
     setError("");
     if (!username.trim() || !password) {
-      setError("Enter your username and password.");
+      setError("Enter your email and password.");
       return;
     }
     setBusy(true);
@@ -33,7 +33,7 @@ export default function LoginPage() {
     } catch (err) {
       const code = err instanceof Error ? err.message : "Sign-in failed.";
       setError(
-        code.includes("incorrect") ? "Username or password is incorrect." : code,
+        code.includes("incorrect") ? "Email or password is incorrect." : code,
       );
     } finally {
       setBusy(false);
@@ -65,17 +65,18 @@ export default function LoginPage() {
             <p className="mt-1 text-sm text-muted">Taleem-o-Hunar Medical Center · Medicine store</p>
           </div>
 
-          <h2 className="text-lg font-semibold text-ths-dark">Sign in</h2>
-          <p className="mt-1 text-sm text-muted">Use your username and password.</p>
+          <h2 className="text-lg font-semibold text-ths-dark">Login</h2>
+          <p className="mt-1 text-sm text-muted">Email and password are required every time you open the desk.</p>
 
           <form onSubmit={onSubmit} className="mt-5 space-y-3">
-            <Field label="Username">
+            <Field label="Email">
               <input
                 className={fieldClass}
                 type="text"
                 autoComplete="username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
+                placeholder="thsmedical3@gmail.com"
                 required
               />
             </Field>
@@ -91,7 +92,7 @@ export default function LoginPage() {
               disabled={busy}
               className="w-full rounded-lg bg-clinic px-4 py-2.5 text-sm font-semibold text-white hover:bg-clinic-dark disabled:opacity-60"
             >
-              {busy ? "Please wait…" : "Sign in"}
+              {busy ? "Please wait…" : "Login"}
             </button>
           </form>
         </div>

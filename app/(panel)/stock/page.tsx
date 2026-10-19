@@ -7,7 +7,7 @@ import { useEffect } from "react";
 export default function StockRedirectPage() {
   const router = useRouter();
   useEffect(() => {
-    router.replace("/medicines");
+    router.replace("/current-stock");
   }, [router]);
   return <p className="text-sm text-muted">Redirecting to medicines…</p>;
 }

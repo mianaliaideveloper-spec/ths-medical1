@@ -1,4 +1,4 @@
-import type { Category, Medicine, ReceptionVisit, StockMovement, Supplier } from "./types";
+import type { Category, Medicine, ReceptionVisit, RentItem, StockMovement, Supplier } from "./types";
 
 const ACCOUNTS_KEY = "ths-desk-accounts";
 const SESSION_KEY = "ths-desk-session";
@@ -24,6 +24,7 @@ export type DeskData = {
   suppliers: Supplier[];
   movements: StockMovement[];
   receptionVisits: ReceptionVisit[];
+  rentItems: RentItem[];
 };
 
 const emptyData = (): DeskData => ({
@@ -32,6 +33,7 @@ const emptyData = (): DeskData => ({
   suppliers: [],
   movements: [],
   receptionVisits: [],
+  rentItems: [],
 });
 
 async function hashPassword(password: string) {
@@ -68,10 +70,17 @@ export function enrichDeskSession(session: DeskSession): DeskSession {
   };
 }
 
+export function writeDeskSession(session: DeskSession) {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  window.localStorage.removeItem(SESSION_KEY);
+}
+
 export function readDeskSession(): DeskSession | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(SESSION_KEY);
+    window.localStorage.removeItem(SESSION_KEY);
+    const raw = window.sessionStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     return enrichDeskSession(JSON.parse(raw) as DeskSession);
   } catch {
@@ -80,6 +89,8 @@ export function readDeskSession(): DeskSession | null {
 }
 
 export function clearDeskSession() {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(SESSION_KEY);
   window.localStorage.removeItem(SESSION_KEY);
 }
 
@@ -125,7 +136,7 @@ export async function registerDeskAdmin(name: string, email: string, password: s
     createdAt: new Date().toISOString(),
   });
   writeAccounts(accounts);
-  window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  writeDeskSession(session);
   return session;
 }
 
@@ -149,7 +160,7 @@ export async function loginDeskAdmin(identifier: string, password: string) {
     name: account.name,
     photoURL: account.photoURL,
   };
-  window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  writeDeskSession(session);
   return session;
 }
 
@@ -198,6 +209,6 @@ export async function updateDeskAccount(
     name: updated.name,
     photoURL: updated.photoURL,
   };
-  window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  writeDeskSession(session);
   return session;
 }

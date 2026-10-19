@@ -5,7 +5,6 @@ import { inventorySummary, useStore } from "@/components/store";
 import { buildDailyReportRows, dailyReportSummary } from "@/lib/daily-report";
 import { exportExcel, exportPdf } from "@/lib/export";
 import { formatDate, formatPkr, stockStatus, todayIso } from "@/lib/format";
-import { printMedicineList } from "@/lib/print";
 
 export default function ReportsPage() {
   const { medicines, movements } = useStore();
@@ -78,13 +77,6 @@ export default function ReportsPage() {
         description="Full inventory exports and today’s stock activity."
         action={
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => printMedicineList(medicines)}
-              className="rounded-lg border border-line bg-white px-4 py-2.5 text-sm font-semibold"
-            >
-              Print list
-            </button>
             <button type="button" onClick={excel} className="rounded-lg bg-ths px-4 py-2.5 text-sm font-semibold text-white">Export Excel</button>
             <button type="button" onClick={pdf} className="rounded-lg bg-clinic px-4 py-2.5 text-sm font-semibold text-white">Export PDF</button>
           </div>

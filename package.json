@@ -3,11 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node scripts/run-next.mjs dev --webpack",
-    "dev:clean": "node scripts/clean-dev-cache.mjs && node scripts/run-next.mjs dev --webpack",
-    "build": "node scripts/run-next.mjs build --webpack",
+    "dev": "next dev",
+    "dev:clean": "node scripts/clean-dev-cache.mjs && next dev",
+    "build": "next build --webpack",
     "start": "next start",
-    "postinstall": "node scripts/ensure-swc-wasm.mjs",
     "lint": "eslint"
   },
   "dependencies": {

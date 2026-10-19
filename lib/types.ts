@@ -38,16 +38,25 @@ export type Medicine = {
   unit: string;
   /** Tablets in one strip (tablet & capsule items). */
   tabletsPerStrip: number;
-  /** Suggested tablets per dose on print slip (optional). */
+  /** Suggested tablets per dose (optional). */
   doseTablets: number;
   shelf: string;
   createdAt: string;
   updatedAt: string;
 };
 
-export type ReceptionVisitStatus = "waiting_doctor" | "medicine_issued";
+export type ReceptionVisitStatus = "waiting_doctor" | "waiting_reception" | "medicine_issued";
 
-/** Reception desk entry — patient takes printed slip to the doctor. */
+export type PrescribedMedicine = {
+  medicineId: string;
+  medicineName: string;
+  quantity: number;
+  dosage: string;
+  instructions: string;
+};
+
+
+/** Reception desk entry — saved patient visit sent to the doctor. */
 export type ReceptionVisit = {
   id: string;
   /** Daily queue number (1 = first slip of the day). */
@@ -60,6 +69,9 @@ export type ReceptionVisit = {
   phone: string;
   slipFee: number;
   status: ReceptionVisitStatus;
+  prescription?: PrescribedMedicine[];
+  doctorNote?: string;
+  prescribedAt?: string;
   createdAt: string;
   createdBy: string;
   medicineIssuedAt?: string;
@@ -85,6 +97,29 @@ export type StockMovement = {
   note: string;
   createdAt: string;
   createdBy: string;
+  /** Rent desk item (when medicineId is empty). */
+  rentItemId?: string;
+};
+
+/** Rentable items (wheelchair, nebulizer, etc.) — stock minus on customer bill. */
+export type RentItem = {
+  id: string;
+  name: string;
+  rentPrice: number;
+  quantity: number;
+  unit: string;
+  note: string;
+  updatedAt: string;
+};
+
+export type RentItemInput = Omit<RentItem, "id" | "updatedAt">;
+
+export type BillIssueSummary = {
+  kind: "medicine" | "rent";
+  name: string;
+  issued: number;
+  unit: string;
+  balanceAfter: number;
 };
 
 export type AdminProfile = {
