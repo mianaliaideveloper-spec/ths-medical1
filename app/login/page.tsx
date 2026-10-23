@@ -32,9 +32,11 @@ export default function LoginPage() {
       router.push("/dashboard");
     } catch (err) {
       const code = err instanceof Error ? err.message : "Sign-in failed.";
-      setError(
-        code.includes("incorrect") ? "Email or password is incorrect." : code,
-      );
+      if (code.includes("incorrect")) {
+        setError("Email or password is incorrect.");
+      } else {
+        setError(code);
+      }
     } finally {
       setBusy(false);
     }
@@ -72,8 +74,9 @@ export default function LoginPage() {
             <Field label="Email">
               <input
                 className={fieldClass}
-                type="text"
-                autoComplete="username"
+              type="text"
+              inputMode="email"
+              autoComplete="username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="thsmedical3@gmail.com"

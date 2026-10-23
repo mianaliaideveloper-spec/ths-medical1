@@ -162,6 +162,17 @@ function phoneDigits(value?: string) {
   return (value ?? "").replace(/\D/g, "");
 }
 
+function firebaseLoginError(error: unknown) {
+  const code = error instanceof Error ? error.message : "";
+  if (code.includes("auth/invalid-email")) return "Enter a valid email address for your Firebase account.";
+  if (code.includes("auth/invalid-credential") || code.includes("auth/wrong-password") || code.includes("auth/user-not-found")) return "Email or password is incorrect.";
+  if (code.includes("auth/too-many-requests")) return "Too many sign-in attempts. Wait a little and try again.";
+  if (code.includes("auth/network-request-failed")) return "Could not reach the sign-in service. Check your internet connection.";
+  if (code.includes("auth/operation-not-allowed")) return "Email and password sign-in is not enabled for this Firebase project.";
+  if (code.includes("auth/invalid-api-key")) return "Firebase sign-in is not configured correctly for this website.";
+  return "Could not sign in. Check your account details and Firebase setup, then try again.";
+}
+
 function openLocalSession(
   session: DeskSession,
   setUser: (value: DeskSession) => void,
@@ -595,7 +606,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return;
         }
         const [firebase, authApi] = await Promise.all([loadFirebaseClient(), import("firebase/auth")]);
-        await authApi.signInWithEmailAndPassword(firebase.auth, email.trim(), password);
+        const enteredId = email.trim().toLowerCase();
+        const firebaseEmail = ["ths", "thsmedical3"].includes(enteredId)
+          ? FIXED_AUTH_USERNAME
+          : enteredId;
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(firebaseEmail)) {
+          throw new Error("Enter a valid email address for your Firebase account.");
+        }
+        try {
+          await authApi.signInWithEmailAndPassword(firebase.auth, firebaseEmail, password);
+        } catch (error) {
+          throw new Error(firebaseLoginError(error));
+        }
       },
       async register() {
         throw new Error("Sign-up is not available. Use the store username and password.");
