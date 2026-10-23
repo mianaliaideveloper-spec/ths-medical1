@@ -59,6 +59,8 @@ export type PrescribedMedicine = {
 /** Reception desk entry — saved patient visit sent to the doctor. */
 export type ReceptionVisit = {
   id: string;
+  /** Stable patient identity reused across visits when the phone number matches. */
+  patientId?: string;
   /** Daily queue number (1 = first slip of the day). */
   tokenNumber: number;
   slipNumber: string;
@@ -84,6 +86,19 @@ export type ReceptionVisitInput = {
   complaint: string;
   phone?: string;
 };
+
+export type SchoolStudent = {
+  id: string;
+  studentName: string;
+  schoolName: string;
+  className: string;
+  phone: string;
+  fee: 0;
+  createdAt: string;
+  createdBy: string;
+};
+
+export type SchoolStudentInput = Omit<SchoolStudent, "id" | "fee" | "createdAt" | "createdBy">;
 
 export type StockType = "in" | "out" | "adjustment";
 

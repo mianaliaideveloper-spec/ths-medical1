@@ -28,7 +28,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         }`}
       >
         <Link href="/dashboard" className="flex items-center gap-3 px-4 py-5" onClick={() => setOpen(false)}>
-          <Image src="/logo.png" alt="Taleem-o-Hunar Society logo" width={56} height={56} className="h-14 w-14 max-w-none rounded-full bg-white object-contain" />
+          <Image src="/ths-medical-logo.webp" alt="THS Medical Center logo" width={56} height={56} className="h-14 w-14 max-w-none rounded-full bg-white object-contain" />
           <span>
             <span className="block text-sm font-semibold leading-tight">Taleem-o-Hunar</span>
             <span className="block text-xs text-white/75">Medical Center Store</span>

@@ -4,6 +4,7 @@ export const mainNavLinks = [
   { href: "/medicines", label: "Medicine Master" },
   { href: "/stock-in", label: "Stock In" },
   { href: "/reception", label: "Patient Register" },
+  { href: "/school-students", label: "School Student Register" },
   { href: "/doctor", label: "Doctor Prescriptions" },
   { href: "/clinic-list", label: "Sheet1" },
   { href: "/current-stock", label: "Current Stock" },

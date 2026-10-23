@@ -1,11 +1,11 @@
-import { todayIso } from "@/lib/format";
+import { dateInPakistan, todayIso } from "@/lib/format";
 import type { ReceptionVisit } from "@/lib/types";
 
 /** Reception doctor slip has no charge. */
 export const RECEPTION_SLIP_FEE_PKR = 0;
 
 function visitsOnDay(visits: ReceptionVisit[], day: string) {
-  return visits.filter((item) => item.createdAt.slice(0, 10) === day);
+  return visits.filter((item) => dateInPakistan(item.createdAt) === day);
 }
 
 /** Next daily token (1 for first slip of the day, then 2, 3, …). */

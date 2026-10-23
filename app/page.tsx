@@ -6,7 +6,7 @@ export default function Home() {
     <div className="min-h-screen bg-[linear-gradient(160deg,#0f4d33_0%,#156b47_42%,#1a4f8b_100%)] text-white">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5">
         <div className="flex items-center gap-3">
-          <Image src="/logo.png" alt="Taleem-o-Hunar Society logo" width={64} height={64} className="h-16 w-16 max-w-none rounded-full bg-white object-contain" priority />
+          <Image src="/ths-medical-logo.webp" alt="THS Medical Center logo" width={64} height={64} className="h-16 w-16 max-w-none rounded-full bg-white object-contain" priority />
           <div>
             <p className="text-sm font-semibold">Taleem-o-Hunar Society</p>
             <p className="text-xs text-white/75">Medical Center</p>

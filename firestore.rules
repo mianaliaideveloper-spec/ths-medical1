@@ -11,11 +11,7 @@ service cloud.firestore {
 
     match /admins/{uid} {
       allow read: if signedIn() && request.auth.uid == uid;
-      allow create: if signedIn()
-        && request.auth.uid == uid
-        && request.resource.data.email == request.auth.token.email
-        && request.resource.data.role == "admin";
-      allow update, delete: if false;
+      allow write: if false;
     }
 
     match /medicines/{id} {
@@ -38,6 +34,15 @@ service cloud.firestore {
     match /receptionVisits/{id} {
       allow read, create, update: if isAdmin();
       allow delete: if false;
+    }
+
+    match /schoolStudents/{id} {
+      allow read, create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    match /rentItems/{id} {
+      allow read, write: if isAdmin();
     }
   }
 }

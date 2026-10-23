@@ -1,4 +1,4 @@
-import { formatDate, formatDateTime, todayIso } from "@/lib/format";
+import { dateInPakistan, formatDate, formatDateTime, todayIso } from "@/lib/format";
 import type { Medicine, StockMovement } from "@/lib/types";
 
 export type DailyReportRow = {
@@ -12,7 +12,7 @@ export type DailyReportRow = {
 
 export function movementsForDay(movements: StockMovement[], day = todayIso()) {
   return movements
-    .filter((item) => item.createdAt.slice(0, 10) === day)
+    .filter((item) => dateInPakistan(item.createdAt) === day)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 

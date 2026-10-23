@@ -1,4 +1,5 @@
 import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
+import { getAuth, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
 import type { FirebaseWebConfig } from "./types";
 
@@ -55,17 +56,20 @@ export function resolveFirebaseConfig(): FirebaseWebConfig {
 
 let app: FirebaseApp | null = null;
 let db: Firestore | null = null;
+let auth: Auth | null = null;
 
 export function getFirebase() {
   const config = resolveFirebaseConfig();
   if (!app) {
     app = getApps()[0] ?? initializeApp(config);
     db = getFirestore(app);
+    auth = getAuth(app);
   }
-  return { app, db: db! };
+  return { app, db: db!, auth: auth! };
 }
 
 export function resetFirebase() {
   app = null;
   db = null;
+  auth = null;
 }

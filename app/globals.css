@@ -32,7 +32,12 @@
 }
 
 body {
-  background: var(--background);
+  background-color: var(--background);
+  background-image: linear-gradient(rgba(244, 247, 245, 0.94), rgba(244, 247, 245, 0.94)), url("/ths-medical-logo.webp");
+  background-position: center, center 54%;
+  background-repeat: no-repeat;
+  background-size: cover, min(68vw, 720px);
+  background-attachment: fixed;
   color: var(--foreground);
   font-family: "Segoe UI", Arial, sans-serif;
 }

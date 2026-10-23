@@ -3,7 +3,18 @@ export const LOW_STOCK_DAYS = 90;
 export const LOW_STOCK_THRESHOLD = 10;
 
 export function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  return dateInPakistan(new Date());
+}
+
+export function dateInPakistan(value: string | Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Karachi",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value instanceof Date ? value : new Date(value));
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
 export function daysUntil(expiryDate: string) {

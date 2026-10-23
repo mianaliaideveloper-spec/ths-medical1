@@ -4,6 +4,7 @@ import type { DocumentData, QuerySnapshot, Transaction } from "firebase/firestor
 
 type FirestoreApi = typeof import("firebase/firestore");
 let firestoreApi: FirestoreApi | null = null;
+const localDeskMode = process.env.NEXT_PUBLIC_LOCAL_DESK_MODE === "true";
 
 async function loadFirestoreApi() {
   firestoreApi ??= await import("firebase/firestore");
@@ -90,6 +91,7 @@ import {
   isOutOfStock,
 } from "@/lib/format";
 import { applyCustomerBillStockLocal } from "@/lib/issue-customer-bill";
+import { validateBillAgainstStock } from "@/lib/issue-customer-bill";
 import type { BillCartRow } from "@/lib/bill";
 import type {
   AdminProfile,
@@ -103,6 +105,8 @@ import type {
   ReceptionVisitInput,
   RentItem,
   RentItemInput,
+  SchoolStudent,
+  SchoolStudentInput,
   StockMovement,
   StockType,
   Supplier,
@@ -119,8 +123,10 @@ type StoreContextValue = {
   suppliers: Supplier[];
   movements: StockMovement[];
   receptionVisits: ReceptionVisit[];
+  schoolStudents: SchoolStudent[];
   rentItems: RentItem[];
   registerReceptionVisit: (input: ReceptionVisitInput) => Promise<ReceptionVisit>;
+  registerSchoolStudent: (input: SchoolStudentInput) => Promise<SchoolStudent>;
   markReceptionMedicineIssued: (id: string) => Promise<void>;
   saveReceptionPrescription: (id: string, prescription: PrescribedMedicine[], doctorNote: string, complaint?: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
@@ -152,6 +158,10 @@ function inventoryRevision(medicines: Medicine[]) {
   return medicines.map((item) => `${item.id}:${item.updatedAt}:${item.quantity}`).join("|");
 }
 
+function phoneDigits(value?: string) {
+  return (value ?? "").replace(/\D/g, "");
+}
+
 function openLocalSession(
   session: DeskSession,
   setUser: (value: DeskSession) => void,
@@ -161,6 +171,7 @@ function openLocalSession(
   setSuppliers: (value: Supplier[]) => void,
   setMovements: (value: StockMovement[]) => void,
   setReceptionVisits: (value: ReceptionVisit[]) => void,
+  setSchoolStudents: (value: SchoolStudent[]) => void,
   setRentItems: (value: RentItem[]) => void,
 ) {
   const data = readDeskData();
@@ -179,6 +190,7 @@ function openLocalSession(
   setSuppliers(data.suppliers);
   setMovements(data.movements);
   setReceptionVisits(normalizeReceptionVisits(data.receptionVisits ?? []));
+  setSchoolStudents([]);
   setRentItems((data.rentItems ?? []).sort((a, b) => a.name.localeCompare(b.name)));
 }
 
@@ -203,13 +215,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [receptionVisits, setReceptionVisits] = useState<ReceptionVisit[]>([]);
+  const [schoolStudents, setSchoolStudents] = useState<SchoolStudent[]>([]);
   const [rentItems, setRentItems] = useState<RentItem[]>([]);
 
   // Restore the local desk session once before enabling protected pages.
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     const desk = readDeskSession();
-    if (desk && isFixedStoreUser(desk.uid)) {
+    if (localDeskMode && desk && isFixedStoreUser(desk.uid)) {
       const data = readDeskData();
       setUser(desk);
       setAdmin({
@@ -225,14 +238,59 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setSuppliers(data.suppliers);
       setMovements(data.movements);
       setReceptionVisits(normalizeReceptionVisits(data.receptionVisits ?? []));
+      setSchoolStudents([]);
       setRentItems((data.rentItems ?? []).sort((a, b) => a.name.localeCompare(b.name)));
       setReady(true);
       return;
     }
     if (desk) clearDeskSession();
-    setUser(null);
-    setAdmin(null);
-    setReady(true);
+    let active = true;
+    let unsubscribe = () => {};
+    void Promise.all([loadFirebaseClient(), import("firebase/auth"), loadFirestoreApi()]).then(([firebase, authApi]) => {
+      if (!active) return;
+      unsubscribe = authApi.onAuthStateChanged(firebase.auth, async (firebaseUser) => {
+        if (!firebaseUser) {
+          setUser(null);
+          setAdmin(null);
+          setReady(true);
+          return;
+        }
+        try {
+          const adminSnapshot = await firestoreApi!.getDoc(doc(firebase.db, "admins", firebaseUser.uid));
+          if (!adminSnapshot.exists() || adminSnapshot.data().role !== "admin") {
+            await authApi.signOut(firebase.auth);
+            setAuthError("This Firebase account is not enabled as a medical-center admin.");
+            setUser(null);
+            setAdmin(null);
+          } else {
+            const profile = adminSnapshot.data();
+            const session: DeskSession = {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || "",
+              name: typeof profile.name === "string" ? profile.name : firebaseUser.displayName || "THS Medical",
+              photoURL: firebaseUser.photoURL || undefined,
+            };
+            setUser(session);
+            setAdmin({ uid: session.uid, email: session.email, name: session.name, role: "admin", createdAt: typeof profile.createdAt === "string" ? profile.createdAt : "", photoURL: session.photoURL });
+          }
+        } catch (error) {
+          console.error("Firebase sign-in could not be verified.", error);
+          setAuthError("Could not verify this Firebase account. Check Firestore rules and admin setup.");
+          setUser(null);
+          setAdmin(null);
+        } finally {
+          setReady(true);
+        }
+      });
+    }).catch((error: unknown) => {
+      console.error("Firebase authentication is unavailable.", error);
+      setAuthError("Firebase authentication is unavailable. Check the Firebase project settings.");
+      setReady(true);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
   /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -242,34 +300,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const unsubscribers: Array<() => void> = [];
     void Promise.all([loadFirebaseClient(), loadFirestoreApi()]).then(([firebase]) => {
       if (!active) return;
+      const handleReadError = (label: string) => (error: Error) => {
+        console.error(`Could not read ${label} from Firestore.`, error);
+        setAuthError(`Could not load ${label} from Firebase. Check your internet connection and Firestore rules.`);
+      };
       const unsubMeds = onSnapshot(collection(firebase.db, "medicines"), (snap: QuerySnapshot<DocumentData>) => {
         setMedicines(
           snap.docs
             .map((item) => mapDoc<Medicine>(item.id, item.data()))
             .sort((a, b) => a.name.localeCompare(b.name)),
         );
-      });
+      }, handleReadError("medicines"));
       const unsubCats = onSnapshot(collection(firebase.db, "categories"), (snap: QuerySnapshot<DocumentData>) => {
         setCategories(
           snap.docs
             .map((item) => mapDoc<Category>(item.id, item.data()))
             .sort((a, b) => a.name.localeCompare(b.name)),
         );
-      });
+      }, handleReadError("categories"));
       const unsubSuppliers = onSnapshot(collection(firebase.db, "suppliers"), (snap: QuerySnapshot<DocumentData>) => {
         setSuppliers(
           snap.docs
             .map((item) => mapDoc<Supplier>(item.id, item.data()))
             .sort((a, b) => a.name.localeCompare(b.name)),
         );
-      });
+      }, handleReadError("suppliers"));
       const unsubMoves = onSnapshot(collection(firebase.db, "stockMovements"), (snap: QuerySnapshot<DocumentData>) => {
         setMovements(
           snap.docs
             .map((item) => mapDoc<StockMovement>(item.id, item.data()))
             .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
         );
-      });
+      }, handleReadError("stock movements"));
       const unsubReception = onSnapshot(collection(firebase.db, "receptionVisits"), (snap: QuerySnapshot<DocumentData>) => {
         setReceptionVisits(
           normalizeReceptionVisits(
@@ -278,8 +340,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
           ),
         );
-      });
-      unsubscribers.push(unsubMeds, unsubCats, unsubSuppliers, unsubMoves, unsubReception);
+      }, handleReadError("patient visits"));
+      const unsubSchoolStudents = onSnapshot(collection(firebase.db, "schoolStudents"), (snap: QuerySnapshot<DocumentData>) => {
+        setSchoolStudents(
+          snap.docs
+            .map((item) => mapDoc<SchoolStudent>(item.id, item.data()))
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+        );
+      }, handleReadError("school student records"));
+      const unsubRentItems = onSnapshot(collection(firebase.db, "rentItems"), (snap: QuerySnapshot<DocumentData>) => {
+        setRentItems(snap.docs.map((item) => mapDoc<RentItem>(item.id, item.data())).sort((a, b) => a.name.localeCompare(b.name)));
+      }, handleReadError("rent items"));
+      unsubscribers.push(unsubMeds, unsubCats, unsubSuppliers, unsubMoves, unsubReception, unsubSchoolStudents, unsubRentItems);
     }).catch((error: unknown) => {
       console.error("Could not connect to the medicine database.", error);
     });
@@ -307,6 +379,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       suppliers,
       movements,
       receptionVisits,
+      schoolStudents,
       async saveReceptionPrescription(id, prescription, doctorNote, complaint) {
         const prescribedAt = new Date().toISOString();
         const update = (item: ReceptionVisit) => item.id === id
@@ -430,9 +503,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       async registerReceptionVisit(input) {
         const validated = validateReceptionInput(input);
         const now = new Date().toISOString();
+        const normalizedPhone = phoneDigits(validated.phone);
+        const previousVisit = normalizedPhone
+          ? receptionVisits.find((item) => phoneDigits(item.phone) === normalizedPhone)
+          : undefined;
+        const patientId = previousVisit?.patientId
+          || (previousVisit ? `THS-P-${previousVisit.id.slice(0, 8).toUpperCase()}` : `THS-P-${crypto.randomUUID().slice(0, 8).toUpperCase()}`);
         const tokenNumber = nextTokenNumber(receptionVisits);
         const visit: ReceptionVisit = {
           id: crypto.randomUUID(),
+          patientId,
           tokenNumber,
           slipNumber: nextSlipNumber(receptionVisits),
           patientName: validated.patientName,
@@ -459,6 +539,35 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setReceptionVisits((current) => [saved, ...current]);
         return saved;
       },
+      async registerSchoolStudent(input) {
+        const studentName = input.studentName.trim();
+        const schoolName = input.schoolName.trim();
+        const className = input.className.trim();
+        const phone = input.phone.trim();
+        if (!studentName || !schoolName || !className || !phone) {
+          throw new Error("Complete the student name, school, class, and phone number.");
+        }
+        if (isLocalAdmin(user?.uid)) {
+          throw new Error("Firebase sign-in is not connected to this desk. The student was not saved locally or to Firebase.");
+        }
+        const student: SchoolStudent = {
+          ...input,
+          id: "",
+          studentName,
+          schoolName,
+          className,
+          phone,
+          fee: 0,
+          createdAt: new Date().toISOString(),
+          createdBy: user?.email || admin?.name || "reception",
+        };
+        const firebase = await firebaseOrThrow();
+        const payload = withoutId(student);
+        const ref = await addDoc(collection(firebase.db, "schoolStudents"), payload);
+        const saved = { ...student, id: ref.id };
+        setSchoolStudents((current) => [saved, ...current]);
+        return saved;
+      },
       async markReceptionMedicineIssued(id) {
         const issuedAt = new Date().toISOString();
         if (isLocalAdmin(user?.uid)) {
@@ -480,26 +589,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
       async login(email, password) {
         setAuthError("");
-        if (!verifyFixedCredentials(email, password)) {
-          throw new Error("Username or password is incorrect.");
+        if (localDeskMode && verifyFixedCredentials(email, password)) {
+          const session = openFixedDeskSession();
+          openLocalSession(session, setUser, setAdmin, setMedicines, setCategories, setSuppliers, setMovements, setReceptionVisits, setSchoolStudents, setRentItems);
+          return;
         }
-        const session = openFixedDeskSession();
-        openLocalSession(
-          session,
-          setUser,
-          setAdmin,
-          setMedicines,
-          setCategories,
-          setSuppliers,
-          setMovements,
-          setReceptionVisits,
-          setRentItems,
-        );
+        const [firebase, authApi] = await Promise.all([loadFirebaseClient(), import("firebase/auth")]);
+        await authApi.signInWithEmailAndPassword(firebase.auth, email.trim(), password);
       },
       async register() {
         throw new Error("Sign-up is not available. Use the store username and password.");
       },
       async logout() {
+        if (user && !isLocalAdmin(user.uid)) {
+          const [firebase, authApi] = await Promise.all([loadFirebaseClient(), import("firebase/auth")]);
+          await authApi.signOut(firebase.auth);
+        }
         clearDeskSession();
         setUser(null);
         setAdmin(null);
@@ -743,7 +848,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setRentItems(data.rentItems);
           return;
         }
-        throw new Error("Rent items are saved on this desk only (local login).");
+        const firebase = await firebaseOrThrow();
+        const now = new Date().toISOString();
+        if (id) await updateDoc(doc(firebase.db, "rentItems", id), { ...payload, updatedAt: now });
+        else await addDoc(collection(firebase.db, "rentItems"), { ...payload, updatedAt: now });
       },
       async deleteRentItem(id) {
         if (isLocalAdmin(user?.uid)) {
@@ -753,20 +861,59 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setRentItems(data.rentItems);
           return;
         }
-        throw new Error("Rent items are saved on this desk only (local login).");
+        const firebase = await firebaseOrThrow();
+        await deleteDoc(doc(firebase.db, "rentItems", id));
       },
       async issueCustomerBill(rows) {
         const note = "Customer bill";
-        if (!isLocalAdmin(user?.uid)) {
-          throw new Error("Bill saving with stock update is available on the store desk login on this computer.");
+        if (isLocalAdmin(user?.uid)) {
+          const data = readDeskData();
+          const result = applyCustomerBillStockLocal(data, rows, user?.email || "admin", note);
+          writeDeskData(result.data);
+          setMedicines(result.data.medicines);
+          setMovements(result.data.movements);
+          setRentItems(result.data.rentItems ?? []);
+          return result.summary;
         }
-        const data = readDeskData();
-        const result = applyCustomerBillStockLocal(data, rows, user?.email || "admin", note);
-        writeDeskData(result.data);
-        setMedicines(result.data.medicines);
-        setMovements(result.data.movements);
-        setRentItems(result.data.rentItems ?? []);
-        return result.summary;
+        if (!user) throw new Error("Sign in before saving a bill.");
+        const firebase = await firebaseOrThrow();
+        const medicineNeeds = new Map<string, number>();
+        const rentNeeds = new Map<string, number>();
+        rows.forEach((row) => {
+          const needs = row.kind === "medicine" ? medicineNeeds : rentNeeds;
+          const id = row.kind === "medicine" ? row.medicine.id : row.item.id;
+          needs.set(id, (needs.get(id) || 0) + row.issueQty);
+        });
+        return (await runTransaction(firebase.db, async (tx: Transaction) => {
+          const medicineRefs = [...medicineNeeds.keys()].map((id) => doc(firebase.db, "medicines", id));
+          const rentRefs = [...rentNeeds.keys()].map((id) => doc(firebase.db, "rentItems", id));
+          const medicineSnaps = await Promise.all(medicineRefs.map((ref) => tx.get(ref)));
+          const rentSnaps = await Promise.all(rentRefs.map((ref) => tx.get(ref)));
+          const currentMedicines = medicineSnaps.filter((snap) => snap.exists()).map((snap) => mapDoc<Medicine>(snap.id, snap.data()!));
+          const currentRent = rentSnaps.filter((snap) => snap.exists()).map((snap) => mapDoc<RentItem>(snap.id, snap.data()!));
+          validateBillAgainstStock(rows, currentMedicines, currentRent);
+          const summary: BillIssueSummary[] = [];
+          const now = new Date().toISOString();
+          for (let i = 0; i < medicineRefs.length; i += 1) {
+            const item = currentMedicines.find((entry) => entry.id === medicineRefs[i].id)!;
+            const issued = medicineNeeds.get(item.id)!;
+            const balanceAfter = item.quantity - issued;
+            tx.update(medicineRefs[i], { quantity: balanceAfter, updatedAt: now });
+            const movementRef = doc(collection(firebase.db, "stockMovements"));
+            tx.set(movementRef, { medicineId: item.id, medicineName: item.name, type: "out", quantity: issued, balanceAfter, note, createdAt: now, createdBy: user.email });
+            summary.push({ kind: "medicine", name: item.name, issued, unit: item.unit, balanceAfter });
+          }
+          for (let i = 0; i < rentRefs.length; i += 1) {
+            const item = currentRent.find((entry) => entry.id === rentRefs[i].id)!;
+            const issued = rentNeeds.get(item.id)!;
+            const balanceAfter = item.quantity - issued;
+            tx.update(rentRefs[i], { quantity: balanceAfter, updatedAt: now });
+            const movementRef = doc(collection(firebase.db, "stockMovements"));
+            tx.set(movementRef, { medicineId: "", medicineName: item.name, type: "out", quantity: issued, balanceAfter, note, createdAt: now, createdBy: user.email, rentItemId: item.id });
+            summary.push({ kind: "rent", name: item.name, issued, unit: item.unit, balanceAfter });
+          }
+          return summary;
+        })) as BillIssueSummary[];
       },
     };
   }, [
@@ -777,6 +924,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     medicines,
     movements,
     receptionVisits,
+    schoolStudents,
     rentItems,
     ready,
     suppliers,

@@ -43,11 +43,11 @@ export default function LoginPage() {
   return (
     <div className="relative min-h-screen overflow-hidden">
       <Image
-        src="/logo.png"
+        src="/ths-medical-logo.webp"
         alt=""
         fill
         priority
-        className="object-cover object-center scale-110 blur-[2px]"
+        className="object-contain object-center scale-90 opacity-25 blur-[1px]"
         sizes="100vw"
       />
       <div className="absolute inset-0 bg-ths-dark/75" aria-hidden />
@@ -55,7 +55,7 @@ export default function LoginPage() {
         <div className="w-full max-w-md rounded-2xl border border-white/20 bg-white/95 p-6 shadow-xl backdrop-blur-sm sm:p-8">
           <div className="mb-6 flex flex-col items-center text-center">
             <Image
-              src="/logo.png"
+              src="/ths-medical-logo.webp"
               alt="Taleem-o-Hunar Medical Center"
               width={88}
               height={88}
