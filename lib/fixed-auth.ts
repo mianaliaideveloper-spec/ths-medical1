@@ -3,8 +3,16 @@ import { readDeskSession, writeDeskSession, type DeskSession } from "./desk";
 /** Single store login — no sign-up. Change via env if needed. */
 export const FIXED_AUTH_UID = "local-ths-fixed-admin";
 
-export const FIXED_AUTH_USERNAME =
-  process.env.NEXT_PUBLIC_STORE_USERNAME?.trim() || "thsmedical3@gmail.com";
+const DEFAULT_AUTH_EMAIL = "thsmedical3@gmail.com";
+const configuredAuthEmail = process.env.NEXT_PUBLIC_STORE_USERNAME?.trim();
+const validAuthEmail = (value?: string) =>
+  Boolean(value && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value));
+
+// A plain store username in the deployment env must never be sent to Firebase
+// as its email parameter. Fall back to the known email until env is corrected.
+export const FIXED_AUTH_USERNAME = validAuthEmail(configuredAuthEmail)
+  ? configuredAuthEmail!
+  : DEFAULT_AUTH_EMAIL;
 
 export const FIXED_AUTH_PASSWORD =
   process.env.NEXT_PUBLIC_STORE_PASSWORD || "THSmedical3";

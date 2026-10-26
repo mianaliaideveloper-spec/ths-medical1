@@ -165,7 +165,7 @@ function phoneDigits(value?: string) {
 
 function firebaseLoginError(error: unknown) {
   const code = error instanceof Error ? error.message : "";
-  if (code.includes("auth/invalid-email")) return "Enter a valid email address for your Firebase account.";
+  if (code.includes("auth/invalid-email")) return "Firebase rejected the sign-in email. Set NEXT_PUBLIC_STORE_USERNAME to the Firebase account email and redeploy.";
   if (code.includes("auth/invalid-credential") || code.includes("auth/wrong-password") || code.includes("auth/user-not-found")) return "Email or password is incorrect.";
   if (code.includes("auth/too-many-requests")) return "Too many sign-in attempts. Wait a little and try again.";
   if (code.includes("auth/network-request-failed")) return "Could not reach the sign-in service. Check your internet connection.";
