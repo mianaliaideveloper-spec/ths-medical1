@@ -1,22 +1,23 @@
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
-import * as XLSX from "xlsx";
-
 export type ExportRow = Record<string, string | number>;
 
-export function exportExcel(filename: string, sheetName: string, rows: ExportRow[]) {
+export async function exportExcel(filename: string, sheetName: string, rows: ExportRow[]) {
+  const XLSX = await import("xlsx");
   const sheet = XLSX.utils.json_to_sheet(rows);
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, sheet, sheetName.slice(0, 31));
   XLSX.writeFile(book, filename.endsWith(".xlsx") ? filename : `${filename}.xlsx`);
 }
 
-export function exportPdf(
+export async function exportPdf(
   filename: string,
   title: string,
   columns: string[],
   rows: (string | number)[][],
 ) {
+  const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ]);
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   doc.setFontSize(14);
   doc.text(title, 40, 36);

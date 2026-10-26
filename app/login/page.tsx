@@ -68,10 +68,10 @@ export default function LoginPage() {
           </div>
 
           <h2 className="text-lg font-semibold text-ths-dark">Login</h2>
-          <p className="mt-1 text-sm text-muted">Email and password are required every time you open the desk.</p>
+          <p className="mt-1 text-sm text-muted">Enter your email or store username and password.</p>
 
           <form onSubmit={onSubmit} className="mt-5 space-y-3">
-            <Field label="Email">
+            <Field label="Email or username">
               <input
                 className={fieldClass}
               type="text"
@@ -79,7 +79,7 @@ export default function LoginPage() {
               autoComplete="username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="thsmedical3@gmail.com"
+                placeholder="Email or store username"
                 required
               />
             </Field>

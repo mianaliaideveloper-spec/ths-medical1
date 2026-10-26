@@ -58,6 +58,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { usePathname } from "next/navigation";
 import {
   clearDeskSession,
   isLocalAdmin,
@@ -169,6 +170,7 @@ function firebaseLoginError(error: unknown) {
   if (code.includes("auth/too-many-requests")) return "Too many sign-in attempts. Wait a little and try again.";
   if (code.includes("auth/network-request-failed")) return "Could not reach the sign-in service. Check your internet connection.";
   if (code.includes("auth/operation-not-allowed")) return "Email and password sign-in is not enabled for this Firebase project.";
+  if (code.includes("auth/configuration-not-found") || code.includes("CONFIGURATION_NOT_FOUND")) return "Firebase Email/Password sign-in is not enabled yet. Deploy the Authentication settings for this project, then try again.";
   if (code.includes("auth/invalid-api-key")) return "Firebase sign-in is not configured correctly for this website.";
   return "Could not sign in. Check your account details and Firebase setup, then try again.";
 }
@@ -216,6 +218,7 @@ function withoutId<T extends { id: string }>(item: T): Omit<T, "id"> {
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const [ready, setReady] = useState(false);
   const [configured] = useState(true);
   const [user, setUser] = useState<DeskSession | null>(null);
@@ -307,6 +310,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!user || isLocalAdmin(user.uid)) return;
+    const isRoute = (routes: string[]) => routes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
+    const needsMedicines = isRoute([
+      "/dashboard", "/alerts", "/current-stock", "/doctor", "/expiry-report",
+      "/low-stock-report", "/reports", "/suppliers", "/stock-in", "/medicines",
+    ]);
+    const needsCategories = isRoute(["/medicines"]);
+    const needsSuppliers = isRoute(["/dashboard", "/medicines", "/suppliers"]);
+    const needsMovements = isRoute(["/reports"]) || pathname.startsWith("/medicines/");
+    const needsReception = isRoute(["/doctor", "/reception"]);
+    const needsSchoolStudents = isRoute(["/school-students"]);
+    const needsRentItems = isRoute(["/rent"]);
+    if (!needsMedicines && !needsCategories && !needsSuppliers && !needsMovements && !needsReception && !needsSchoolStudents && !needsRentItems) return;
     let active = true;
     const unsubscribers: Array<() => void> = [];
     void Promise.all([loadFirebaseClient(), loadFirestoreApi()]).then(([firebase]) => {
@@ -315,54 +330,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         console.error(`Could not read ${label} from Firestore.`, error);
         setAuthError(`Could not load ${label} from Firebase. Check your internet connection and Firestore rules.`);
       };
-      const unsubMeds = onSnapshot(collection(firebase.db, "medicines"), (snap: QuerySnapshot<DocumentData>) => {
-        setMedicines(
-          snap.docs
-            .map((item) => mapDoc<Medicine>(item.id, item.data()))
-            .sort((a, b) => a.name.localeCompare(b.name)),
-        );
-      }, handleReadError("medicines"));
-      const unsubCats = onSnapshot(collection(firebase.db, "categories"), (snap: QuerySnapshot<DocumentData>) => {
-        setCategories(
-          snap.docs
-            .map((item) => mapDoc<Category>(item.id, item.data()))
-            .sort((a, b) => a.name.localeCompare(b.name)),
-        );
-      }, handleReadError("categories"));
-      const unsubSuppliers = onSnapshot(collection(firebase.db, "suppliers"), (snap: QuerySnapshot<DocumentData>) => {
-        setSuppliers(
-          snap.docs
-            .map((item) => mapDoc<Supplier>(item.id, item.data()))
-            .sort((a, b) => a.name.localeCompare(b.name)),
-        );
-      }, handleReadError("suppliers"));
-      const unsubMoves = onSnapshot(collection(firebase.db, "stockMovements"), (snap: QuerySnapshot<DocumentData>) => {
-        setMovements(
-          snap.docs
-            .map((item) => mapDoc<StockMovement>(item.id, item.data()))
-            .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-        );
-      }, handleReadError("stock movements"));
-      const unsubReception = onSnapshot(collection(firebase.db, "receptionVisits"), (snap: QuerySnapshot<DocumentData>) => {
-        setReceptionVisits(
-          normalizeReceptionVisits(
-            snap.docs
-              .map((item) => mapDoc<ReceptionVisit>(item.id, item.data()))
-              .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-          ),
-        );
-      }, handleReadError("patient visits"));
-      const unsubSchoolStudents = onSnapshot(collection(firebase.db, "schoolStudents"), (snap: QuerySnapshot<DocumentData>) => {
-        setSchoolStudents(
-          snap.docs
-            .map((item) => mapDoc<SchoolStudent>(item.id, item.data()))
-            .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-        );
-      }, handleReadError("school student records"));
-      const unsubRentItems = onSnapshot(collection(firebase.db, "rentItems"), (snap: QuerySnapshot<DocumentData>) => {
+      if (needsMedicines) unsubscribers.push(onSnapshot(collection(firebase.db, "medicines"), (snap: QuerySnapshot<DocumentData>) => {
+        setMedicines(snap.docs.map((item) => mapDoc<Medicine>(item.id, item.data())).sort((a, b) => a.name.localeCompare(b.name)));
+      }, handleReadError("medicines")));
+      if (needsCategories) unsubscribers.push(onSnapshot(collection(firebase.db, "categories"), (snap: QuerySnapshot<DocumentData>) => {
+        setCategories(snap.docs.map((item) => mapDoc<Category>(item.id, item.data())).sort((a, b) => a.name.localeCompare(b.name)));
+      }, handleReadError("categories")));
+      if (needsSuppliers) unsubscribers.push(onSnapshot(collection(firebase.db, "suppliers"), (snap: QuerySnapshot<DocumentData>) => {
+        setSuppliers(snap.docs.map((item) => mapDoc<Supplier>(item.id, item.data())).sort((a, b) => a.name.localeCompare(b.name)));
+      }, handleReadError("suppliers")));
+      if (needsMovements) unsubscribers.push(onSnapshot(collection(firebase.db, "stockMovements"), (snap: QuerySnapshot<DocumentData>) => {
+        setMovements(snap.docs.map((item) => mapDoc<StockMovement>(item.id, item.data())).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+      }, handleReadError("stock movements")));
+      if (needsReception) unsubscribers.push(onSnapshot(collection(firebase.db, "receptionVisits"), (snap: QuerySnapshot<DocumentData>) => {
+        setReceptionVisits(normalizeReceptionVisits(snap.docs.map((item) => mapDoc<ReceptionVisit>(item.id, item.data())).sort((a, b) => b.createdAt.localeCompare(a.createdAt))));
+      }, handleReadError("patient visits")));
+      if (needsSchoolStudents) unsubscribers.push(onSnapshot(collection(firebase.db, "schoolStudents"), (snap: QuerySnapshot<DocumentData>) => {
+        setSchoolStudents(snap.docs.map((item) => mapDoc<SchoolStudent>(item.id, item.data())).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+      }, handleReadError("school student records")));
+      if (needsRentItems) unsubscribers.push(onSnapshot(collection(firebase.db, "rentItems"), (snap: QuerySnapshot<DocumentData>) => {
         setRentItems(snap.docs.map((item) => mapDoc<RentItem>(item.id, item.data())).sort((a, b) => a.name.localeCompare(b.name)));
-      }, handleReadError("rent items"));
-      unsubscribers.push(unsubMeds, unsubCats, unsubSuppliers, unsubMoves, unsubReception, unsubSchoolStudents, unsubRentItems);
+      }, handleReadError("rent items")));
     }).catch((error: unknown) => {
       console.error("Could not connect to the medicine database.", error);
     });
@@ -370,7 +358,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       active = false;
       unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
-  }, [user]);
+  }, [pathname, user]);
 
   const value = useMemo<StoreContextValue>(() => {
     const firebaseOrThrow = async () => {
@@ -607,9 +595,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         const [firebase, authApi] = await Promise.all([loadFirebaseClient(), import("firebase/auth")]);
         const enteredId = email.trim().toLowerCase();
-        const firebaseEmail = ["ths", "thsmedical3"].includes(enteredId)
-          ? FIXED_AUTH_USERNAME
-          : enteredId;
+        const loginAlias = (process.env.NEXT_PUBLIC_STORE_LOGIN_ALIAS || "thsmedical5").trim().toLowerCase();
+        // Firebase Auth needs an email. Resolve the configured store alias to its
+        // Firebase account email; the password is still checked by Firebase.
+        const firebaseEmail = enteredId.includes("@")
+          ? enteredId
+          : enteredId === loginAlias
+            ? FIXED_AUTH_USERNAME.trim().toLowerCase()
+            : "";
+        // Stop unknown usernames and malformed emails before calling Firebase.
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(firebaseEmail)) {
           throw new Error("Enter a valid email address for your Firebase account.");
         }
