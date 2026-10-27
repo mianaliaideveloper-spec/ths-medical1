@@ -10,13 +10,13 @@ import {
   isExpiringSoon,
   isLowStock,
   isOutOfStock,
-  LOW_STOCK_THRESHOLD,
+  stockQuantity,
 } from "@/lib/format";
 
 export default function AlertsPage() {
   const { medicines } = useStore();
   const low = medicines.filter((item) => !isExpired(item) && (isLowStock(item) || isOutOfStock(item)));
-  const expiry = medicines.filter((item) => isExpired(item) || (isExpiringSoon(item) && item.quantity > 0));
+  const expiry = medicines.filter((item) => isExpired(item) || (isExpiringSoon(item) && stockQuantity(item) > 0));
 
   return (
     <div>
@@ -29,13 +29,13 @@ export default function AlertsPage() {
           <div className="border-b border-line px-5 py-4">
             <h2 className="font-semibold text-ths-dark">Low stock</h2>
             <p className="text-sm text-muted">
-              {low.length} medicines with less than {LOW_STOCK_THRESHOLD} units (or out of stock).
+              {low.length} medicines below their minimum stock level (or out of stock).
             </p>
           </div>
           {low.length === 0 ? (
             <EmptyState
               title="Stock levels are healthy"
-              body={`Every in-date item has at least ${LOW_STOCK_THRESHOLD} units.`}
+              body="Every in-date item meets its minimum stock level."
             />
           ) : (
             <div className="table-wrap">
@@ -52,14 +52,14 @@ export default function AlertsPage() {
                   {low.map((item) => (
                     <tr key={item.id}>
                       <td>
-                        <Link className="font-medium text-clinic" href={`/medicines/${item.id}`}>
+                        <Link prefetch={false} className="font-medium text-clinic" href={`/medicines/${item.id}`}>
                           {item.name}
                         </Link>
                         <div className="text-xs text-muted">{item.genericName}</div>
                       </td>
                       <td>{item.quantity}</td>
                       <td>{item.supplierName || "—"}</td>
-                      <td><StatusBadge status={item.quantity <= 0 ? "out" : "low"} /></td>
+                      <td><StatusBadge status={isOutOfStock(item) ? "out" : "low"} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -79,7 +79,7 @@ export default function AlertsPage() {
                 <tbody>
                   {expiry.map((item) => (
                     <tr key={item.id}>
-                      <td><Link className="text-clinic" href={`/medicines/${item.id}`}>{item.name}</Link></td>
+                      <td><Link prefetch={false} className="text-clinic" href={`/medicines/${item.id}`}>{item.name}</Link></td>
                       <td>{item.strength}</td>
                       <td>{formatDate(item.expiryDate)}</td>
                       <td>{daysUntil(item.expiryDate)}</td>

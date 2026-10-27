@@ -41,6 +41,8 @@ export type Medicine = {
   /** Suggested tablets per dose (optional). */
   doseTablets: number;
   shelf: string;
+  /** Marks the first imported workbook balance so later syncs do not reset live stock. */
+  sheetStockImportedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -74,6 +76,8 @@ export type ReceptionVisit = {
   prescription?: PrescribedMedicine[];
   doctorNote?: string;
   prescribedAt?: string;
+  /** Inventory was deducted atomically when this prescription was saved. */
+  stockDeductedAt?: string;
   createdAt: string;
   createdBy: string;
   medicineIssuedAt?: string;

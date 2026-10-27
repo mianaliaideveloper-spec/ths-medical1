@@ -1,12 +1,15 @@
 import { THS_SHEET_MEDICINES } from "@/lib/ths-medicine-sheet-data";
 
-/** Name hints for autocomplete — not loaded into inventory until you add stock. */
+/** Medicine names and inventory metadata from the THS workbook. */
 export type MedicineNameCatalogEntry = {
   name: string;
   genericName: string;
   strength: string;
   itemType: string;
   unit: string;
+  minimumStock: number | null;
+  currentQuantity: number | null;
+  expiryDate: string;
 };
 
 function strengthLabelFromName(name: string): string {
@@ -46,7 +49,9 @@ function unitFromItemType(itemType: string): string {
   }
 }
 
-function buildCatalogEntry(name: string, itemType: string): MedicineNameCatalogEntry {
+function buildCatalogEntry(row: (typeof THS_SHEET_MEDICINES)[number]): MedicineNameCatalogEntry {
+  const name = row.name.trim();
+  const itemType = row.itemType;
   const strength = strengthLabelFromName(name);
   return {
     name,
@@ -54,10 +59,13 @@ function buildCatalogEntry(name: string, itemType: string): MedicineNameCatalogE
     strength,
     itemType,
     unit: unitFromItemType(itemType),
+    minimumStock: row.minimumStock,
+    currentQuantity: row.currentQuantity,
+    expiryDate: row.expiryDate,
   };
 }
 
 /** THS clinic final list only — see lib/ths-medicine-sheet-data.ts */
 export const medicineNameCatalog: MedicineNameCatalogEntry[] = THS_SHEET_MEDICINES.map((row) =>
-  buildCatalogEntry(row.name.trim(), row.itemType),
+  buildCatalogEntry(row),
 ).sort((a, b) => a.name.localeCompare(b.name));

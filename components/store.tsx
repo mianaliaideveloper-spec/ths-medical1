@@ -50,6 +50,11 @@ function addDoc(...args: unknown[]): ReturnType<FirestoreApi["addDoc"]> {
   if (!firestoreApi) throw new Error("Database is still loading. Try again in a moment.");
   return Reflect.apply(firestoreApi.addDoc, firestoreApi, args) as ReturnType<FirestoreApi["addDoc"]>;
 }
+
+function writeBatch(...args: unknown[]): ReturnType<FirestoreApi["writeBatch"]> {
+  if (!firestoreApi) throw new Error("Database is still loading. Try again in a moment.");
+  return Reflect.apply(firestoreApi.writeBatch, firestoreApi, args) as ReturnType<FirestoreApi["writeBatch"]>;
+}
 import {
   createContext,
   useContext,
@@ -90,9 +95,15 @@ import {
   isExpiringSoon,
   isLowStock,
   isOutOfStock,
+  stockQuantity,
 } from "@/lib/format";
 import { applyCustomerBillStockLocal } from "@/lib/issue-customer-bill";
 import { validateBillAgainstStock } from "@/lib/issue-customer-bill";
+import {
+  aggregatePrescriptionStock,
+  applyPrescriptionStockLocally,
+  validatePrescriptionStock,
+} from "@/lib/prescription-stock";
 import type { BillCartRow } from "@/lib/bill";
 import type {
   AdminProfile,
@@ -151,7 +162,7 @@ type StoreContextValue = {
   deleteRentItem: (id: string) => Promise<void>;
   issueCustomerBill: (rows: BillCartRow[]) => Promise<BillIssueSummary[]>;
   syncLocalInventory: (data: ReturnType<typeof readDeskData>) => void;
-  importThsSheetCatalog: () => Promise<{ added: number; total: number; catalogSize: number }>;
+  importThsSheetCatalog: () => Promise<{ added: number; updated: number; total: number; catalogSize: number }>;
 };
 
 const FIRESTORE_ACTOR_LABEL = "THS Medical Admin";
@@ -400,19 +411,84 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       schoolStudents,
       async saveReceptionPrescription(id, prescription, doctorNote, complaint) {
         const prescribedAt = new Date().toISOString();
-        const update = (item: ReceptionVisit) => item.id === id
-          ? { ...item, prescription, doctorNote: doctorNote.trim(), ...(complaint !== undefined ? { complaint: complaint.trim() } : {}), prescribedAt, status: "waiting_reception" as const }
-          : item;
+        const savedPrescription = prescription.map((item) => ({
+          ...item,
+          quantity: Number(item.quantity),
+          dosage: item.dosage.trim(),
+          instructions: item.instructions.trim(),
+        }));
+        const needs = aggregatePrescriptionStock(savedPrescription);
         if (isLocalAdmin(user?.uid)) {
           const data = readDeskData();
-          data.receptionVisits = (data.receptionVisits ?? []).map(update);
+          const visits = data.receptionVisits ?? [];
+          const visit = visits.find((item) => item.id === id);
+          if (!visit) throw new Error("Patient visit was not found.");
+          if (visit.status !== "waiting_doctor") throw new Error("This visit has already been prescribed.");
+          const inventory = applyPrescriptionStockLocally(
+            data.medicines,
+            data.movements,
+            needs,
+            `Doctor prescription ${visit.slipNumber}`,
+            FIRESTORE_ACTOR_LABEL,
+            prescribedAt,
+          );
+          data.medicines = inventory.medicines;
+          data.movements = inventory.movements;
+          data.receptionVisits = visits.map((item) => item.id === id
+            ? {
+                ...item,
+                prescription: savedPrescription,
+                doctorNote: doctorNote.trim(),
+                ...(complaint !== undefined ? { complaint: complaint.trim() } : {}),
+                prescribedAt,
+                stockDeductedAt: prescribedAt,
+                status: "waiting_reception" as const,
+              }
+            : item);
           writeDeskData(data);
+          setMedicines(data.medicines);
+          setMovements(data.movements);
           setReceptionVisits(normalizeReceptionVisits(data.receptionVisits ?? []));
           return;
         }
         const firebase = await firebaseOrThrow();
-        await updateDoc(doc(firebase.db, "receptionVisits", id), {
-          prescription, doctorNote: doctorNote.trim(), ...(complaint !== undefined ? { complaint: complaint.trim() } : {}), prescribedAt, status: "waiting_reception",
+        const visitRef = doc(firebase.db, "receptionVisits", id);
+        await runTransaction(firebase.db, async (tx: Transaction) => {
+          const visitSnap = await tx.get(visitRef);
+          if (!visitSnap.exists()) throw new Error("Patient visit was not found.");
+          const visit = mapDoc<ReceptionVisit>(visitSnap.id, visitSnap.data());
+          if (visit.status !== "waiting_doctor") throw new Error("This visit has already been prescribed.");
+
+          const medicineRefs = needs.map((item) => doc(firebase.db, "medicines", item.medicineId));
+          const medicineSnaps = await Promise.all(medicineRefs.map((ref) => tx.get(ref)));
+          const liveMedicines = medicineSnaps
+            .filter((snap) => snap.exists())
+            .map((snap) => mapDoc<Medicine>(snap.id, snap.data()!));
+          const validated = validatePrescriptionStock(needs, liveMedicines);
+
+          for (const { medicine, quantity, balanceAfter } of validated) {
+            tx.update(doc(firebase.db, "medicines", medicine.id), { quantity: balanceAfter, updatedAt: prescribedAt });
+            const movementRef = doc(collection(firebase.db, "stockMovements"));
+            tx.set(movementRef, {
+              medicineId: medicine.id,
+              medicineName: medicine.name,
+              type: "out",
+              quantity,
+              balanceAfter,
+              note: `Doctor prescription ${visit.slipNumber}`,
+              createdAt: prescribedAt,
+              createdBy: FIRESTORE_ACTOR_LABEL,
+            });
+          }
+
+          tx.update(visitRef, {
+            prescription: savedPrescription,
+            doctorNote: doctorNote.trim(),
+            ...(complaint !== undefined ? { complaint: complaint.trim() } : {}),
+            prescribedAt,
+            stockDeductedAt: prescribedAt,
+            status: "waiting_reception",
+          });
         });
       },
       rentItems,
@@ -458,6 +534,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
       async importThsSheetCatalog() {
         const {
+          buildThsSheetMedicineUpdates,
           buildThsSheetMedicineRows,
           ensureThsSheetCategories,
           ensureThsSheetSupplier,
@@ -474,13 +551,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             data.suppliers.push(supplier);
           }
           const newRows = buildThsSheetMedicineRows(data.medicines, data.categories, supplier);
-          data.medicines = [...data.medicines, ...newRows];
+          const updates = buildThsSheetMedicineUpdates(data.medicines);
+          const updatesById = new Map(updates.map((item) => [item.id, item]));
+          const now = new Date().toISOString();
+          data.medicines = [
+            ...data.medicines.map((item) => {
+              const patch = updatesById.get(item.id);
+              return patch ? { ...item, ...patch, updatedAt: now } : item;
+            }),
+            ...newRows,
+          ];
           data.medicines.sort((a, b) => a.name.localeCompare(b.name));
           writeDeskData(data);
           setCategories(data.categories);
           setSuppliers(data.suppliers);
           setMedicines(data.medicines);
-          return { added: newRows.length, total: data.medicines.length, catalogSize };
+          return { added: newRows.length, updated: updates.length, total: data.medicines.length, catalogSize };
         }
 
         const firebase = await firebaseOrThrow();
@@ -512,11 +598,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
 
         const newRows = buildThsSheetMedicineRows(medicines, nextCategories, supplier);
-        for (const row of newRows) {
-          const payload = withoutId(row);
-          await addDoc(collection(firebase.db, "medicines"), payload);
+        const updates = buildThsSheetMedicineUpdates(medicines);
+        if (newRows.length || updates.length) {
+          const batch = writeBatch(firebase.db);
+          for (const row of newRows) {
+            const ref = doc(collection(firebase.db, "medicines"));
+            batch.set(ref, withoutId(row));
+          }
+          const now = new Date().toISOString();
+          for (const item of updates) {
+            const { id, ...fields } = item;
+            batch.update(doc(firebase.db, "medicines", id), {
+              ...fields,
+              updatedAt: now,
+            });
+          }
+          await batch.commit();
         }
-        return { added: newRows.length, total: medicines.length + newRows.length, catalogSize };
+        return { added: newRows.length, updated: updates.length, total: medicines.length + newRows.length, catalogSize };
       },
       async registerReceptionVisit(input) {
         const validated = validateReceptionInput(input);
@@ -590,19 +689,76 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const issuedAt = new Date().toISOString();
         if (isLocalAdmin(user?.uid)) {
           const data = readDeskData();
-          data.receptionVisits = (data.receptionVisits ?? []).map((item) =>
-            item.id === id
-              ? { ...item, status: "medicine_issued" as const, medicineIssuedAt: issuedAt }
-              : item,
-          );
+          const visits = data.receptionVisits ?? [];
+          const visit = visits.find((item) => item.id === id);
+          if (!visit) throw new Error("Patient visit was not found.");
+          if (visit.status === "medicine_issued") return;
+          if (visit.status !== "waiting_reception") throw new Error("This prescription is not ready for reception.");
+          if (!visit.stockDeductedAt && visit.prescription?.length) {
+            const inventory = applyPrescriptionStockLocally(
+              data.medicines,
+              data.movements,
+              aggregatePrescriptionStock(visit.prescription),
+              `Doctor prescription ${visit.slipNumber}`,
+              FIRESTORE_ACTOR_LABEL,
+              issuedAt,
+            );
+            data.medicines = inventory.medicines;
+            data.movements = inventory.movements;
+          }
+          data.receptionVisits = visits.map((item) => item.id === id
+            ? {
+                ...item,
+                status: "medicine_issued" as const,
+                medicineIssuedAt: issuedAt,
+                ...(item.prescription?.length && !item.stockDeductedAt ? { stockDeductedAt: issuedAt } : {}),
+              }
+            : item);
           writeDeskData(data);
+          setMedicines(data.medicines);
+          setMovements(data.movements);
           setReceptionVisits(normalizeReceptionVisits(data.receptionVisits ?? []));
           return;
         }
         const firebase = await firebaseOrThrow();
-        await updateDoc(doc(firebase.db, "receptionVisits", id), {
-          status: "medicine_issued",
-          medicineIssuedAt: issuedAt,
+        const visitRef = doc(firebase.db, "receptionVisits", id);
+        await runTransaction(firebase.db, async (tx: Transaction) => {
+          const visitSnap = await tx.get(visitRef);
+          if (!visitSnap.exists()) throw new Error("Patient visit was not found.");
+          const visit = mapDoc<ReceptionVisit>(visitSnap.id, visitSnap.data());
+          if (visit.status === "medicine_issued") return;
+          if (visit.status !== "waiting_reception") throw new Error("This prescription is not ready for reception.");
+
+          const needs = !visit.stockDeductedAt && visit.prescription?.length
+            ? aggregatePrescriptionStock(visit.prescription)
+            : [];
+          const medicineRefs = needs.map((item) => doc(firebase.db, "medicines", item.medicineId));
+          const medicineSnaps = await Promise.all(medicineRefs.map((ref) => tx.get(ref)));
+          const liveMedicines = medicineSnaps
+            .filter((snap) => snap.exists())
+            .map((snap) => mapDoc<Medicine>(snap.id, snap.data()!));
+          const validated = needs.length ? validatePrescriptionStock(needs, liveMedicines) : [];
+
+          for (const { medicine, quantity, balanceAfter } of validated) {
+            tx.update(doc(firebase.db, "medicines", medicine.id), { quantity: balanceAfter, updatedAt: issuedAt });
+            const movementRef = doc(collection(firebase.db, "stockMovements"));
+            tx.set(movementRef, {
+              medicineId: medicine.id,
+              medicineName: medicine.name,
+              type: "out",
+              quantity,
+              balanceAfter,
+              note: `Doctor prescription ${visit.slipNumber}`,
+              createdAt: issuedAt,
+              createdBy: FIRESTORE_ACTOR_LABEL,
+            });
+          }
+
+          tx.update(visitRef, {
+            status: "medicine_issued",
+            medicineIssuedAt: issuedAt,
+            ...(needs.length ? { stockDeductedAt: issuedAt } : {}),
+          });
         });
       },
       async login(email, password) {
@@ -977,16 +1133,16 @@ export function useStore() {
 }
 
 export function inventorySummary(medicines: Medicine[]) {
-  const available = medicines.filter((item) => !isExpired(item) && item.quantity > 0);
+  const available = medicines.filter((item) => !isExpired(item) && stockQuantity(item) > 0);
   return {
     total: medicines.length,
-    availableUnits: available.reduce((sum, item) => sum + item.quantity, 0),
+    availableUnits: available.reduce((sum, item) => sum + stockQuantity(item), 0),
     availableSkus: available.length,
     low: medicines.filter((item) => !isExpired(item) && (isLowStock(item) || isOutOfStock(item))).length,
     expired: medicines.filter((item) => isExpired(item)).length,
-    expiring: medicines.filter((item) => isExpiringSoon(item) && item.quantity > 0).length,
-    purchaseValue: available.reduce((sum, item) => sum + item.quantity * item.purchasePrice, 0),
-    saleValue: available.reduce((sum, item) => sum + item.quantity * item.salePrice, 0),
+    expiring: medicines.filter((item) => isExpiringSoon(item) && stockQuantity(item) > 0).length,
+    purchaseValue: available.reduce((sum, item) => sum + stockQuantity(item) * item.purchasePrice, 0),
+    saleValue: available.reduce((sum, item) => sum + stockQuantity(item) * item.salePrice, 0),
   };
 }
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { StatusBadge } from "@/components/shell";
-import { formatDate, formatPkr, stockStatus } from "@/lib/format";
+import { formatDate, formatPkr, stockQuantity, stockStatus } from "@/lib/format";
 import type { Medicine } from "@/lib/types";
 
 export function MedicineListTable({
@@ -45,7 +45,7 @@ export function MedicineListTable({
               <td>{item.strength}</td>
               {!compact && <td>{formatPkr(item.purchasePrice)}</td>}
               {!compact && <td>{formatPkr(item.salePrice)}</td>}
-              <td>{item.quantity}</td>
+              <td>{stockQuantity(item)}</td>
               {!compact && <td>{item.manufacturingDate ? formatDate(item.manufacturingDate) : "—"}</td>}
               <td>
                 <div>{formatDate(item.expiryDate)}</div>
@@ -54,10 +54,10 @@ export function MedicineListTable({
               {!compact && <td>{item.supplierName}</td>}
               <td>
                 <div className="flex gap-2 whitespace-nowrap text-sm">
-                  <Link className="text-clinic" href={`/medicines/${item.id}`}>
+                  <Link prefetch={false} className="text-clinic" href={`/medicines/${item.id}`}>
                     View
                   </Link>
-                  <Link className="text-ths" href={`/medicines/${item.id}/edit`}>
+                  <Link prefetch={false} className="text-ths" href={`/medicines/${item.id}/edit`}>
                     Edit
                   </Link>
                   {onDelete && (

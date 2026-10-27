@@ -27,7 +27,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <Link href="/dashboard" className="flex items-center gap-3 px-4 py-5" onClick={() => setOpen(false)}>
+        <Link
+          href="/dashboard"
+          prefetch={false}
+          onMouseEnter={() => router.prefetch("/dashboard")}
+          onFocus={() => router.prefetch("/dashboard")}
+          className="flex items-center gap-3 px-4 py-5"
+          onClick={() => setOpen(false)}
+        >
           <Image src="/ths-medical-logo.webp" alt="THS Medical Center logo" width={56} height={56} className="h-14 w-14 max-w-none rounded-full bg-white object-contain" />
           <span>
             <span className="block text-sm font-semibold leading-tight">Taleem-o-Hunar</span>
@@ -41,6 +48,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Link
                 key={link.href}
                 href={link.href}
+                prefetch={false}
+                onMouseEnter={() => router.prefetch(link.href)}
+                onFocus={() => router.prefetch(link.href)}
                 onClick={() => setOpen(false)}
                 className={`block rounded-lg px-3 py-2.5 text-sm ${
                   active ? "bg-white text-ths-dark font-semibold" : "text-white/90 hover:bg-white/10"
@@ -122,6 +132,7 @@ export function StatCard({
   href: string;
   tone?: "blue" | "green" | "amber" | "red";
 }) {
+  const router = useRouter();
   const tones = {
     blue: "bg-clinic-soft text-clinic-dark",
     green: "bg-ths-soft text-ths-dark",
@@ -129,7 +140,13 @@ export function StatCard({
     red: "bg-red-50 text-danger",
   };
   return (
-    <Link href={href} className="rounded-2xl border border-line bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow">
+    <Link
+      href={href}
+      prefetch={false}
+      onMouseEnter={() => router.prefetch(href)}
+      onFocus={() => router.prefetch(href)}
+      className="rounded-2xl border border-line bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow"
+    >
       <p className="text-sm text-muted">{label}</p>
       <p className="mt-2 text-3xl font-semibold tracking-tight">{value}</p>
       <p className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${tones[tone]}`}>{hint}</p>

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Card, Field, Notice, PageHeader, fieldClass } from "@/components/shell";
 import { useStore } from "@/components/store";
+import { stockQuantity } from "@/lib/format";
 
 export default function StockInPage() {
   const { medicines, adjustStock } = useStore();
@@ -14,6 +15,7 @@ export default function StockInPage() {
   const [busy, setBusy] = useState(false);
 
   const selected = medicines.find((item) => item.id === medicineId);
+  const currentQuantity = selected ? stockQuantity(selected) : 0;
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -58,14 +60,14 @@ export default function StockInPage() {
                 <option value="">Select…</option>
                 {medicines.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.name} · current {item.quantity} {item.unit}
+                    {item.name} · current {stockQuantity(item)} {item.unit}
                   </option>
                 ))}
               </select>
             </Field>
             {selected && (
               <p className="rounded-lg bg-ths-soft/50 px-3 py-2 text-xs text-ths-dark">
-                After receive: {selected.quantity} + {quantity} = {selected.quantity + Math.max(0, quantity)}{" "}
+                After receive: {currentQuantity} + {quantity} = {currentQuantity + Math.max(0, quantity)}{" "}
                 {selected.unit}
               </p>
             )}

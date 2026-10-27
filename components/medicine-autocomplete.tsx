@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { fieldClass } from "@/components/shell";
 import {
   filterGenericSuggestions,
@@ -20,6 +20,8 @@ type BaseProps = {
   required?: boolean;
   /** Show “Add medicine” in the dropdown while typing (uses current text as prefilled name). */
   showAddNew?: boolean;
+  /** Only show medicines in the supplied inventory; exclude catalog name hints. */
+  inventoryOnly?: boolean;
 };
 
 export function MedicineNameAutocomplete({
@@ -31,15 +33,33 @@ export function MedicineNameAutocomplete({
   onSelectMedicine,
   required = false,
   showAddNew = false,
+  inventoryOnly = false,
 }: BaseProps) {
   const listId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const suggestions = filterMedicineSuggestions(value, medicines);
+  const suggestions = useMemo(() => {
+    if (!inventoryOnly) return filterMedicineSuggestions(value, medicines);
+    const needle = value.trim().toLowerCase();
+    if (!needle) return [];
+    return medicines
+      .filter((item) => item.name.toLowerCase().includes(needle) || item.genericName.toLowerCase().includes(needle))
+      .slice(0, 10)
+      .map((item) => ({
+        name: item.name,
+        genericName: item.genericName,
+        strength: item.strength,
+        unit: item.unit,
+        itemType: item.categoryName,
+        medicineId: item.id,
+      }));
+  }, [inventoryOnly, medicines, value]);
   const typed = value.trim();
-  const exactInStock = typed
-    ? medicines.some((item) => item.name.toLowerCase() === typed.toLowerCase())
-    : false;
+  const medicineNames = useMemo(
+    () => new Set(medicines.map((item) => item.name.trim().toLowerCase())),
+    [medicines],
+  );
+  const exactInStock = typed ? medicineNames.has(typed.toLowerCase()) : false;
   const addHref = typed ? `/medicines/new?name=${encodeURIComponent(typed)}` : "/medicines/new";
   const showDropdown = open && (suggestions.length > 0 || (showAddNew && typed.length > 0));
 
@@ -137,7 +157,7 @@ export function GenericNameAutocomplete({
   const listId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const suggestions = filterGenericSuggestions(value, medicines);
+  const suggestions = useMemo(() => filterGenericSuggestions(value, medicines), [value, medicines]);
 
   useEffect(() => {
     function onPointerDown(event: MouseEvent) {

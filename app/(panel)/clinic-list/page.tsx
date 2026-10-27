@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Card, PageHeader } from "@/components/shell";
+import { formatDate } from "@/lib/format";
 import { THS_SHEET_MEDICINES } from "@/lib/ths-medicine-sheet-data";
 
 export default function ClinicListPage() {
@@ -11,7 +12,7 @@ export default function ClinicListPage() {
     <div className="mx-auto max-w-4xl">
       <PageHeader
         title="Sheet1"
-        description={`Final THS medicine list — ${rows.length} names (English). Sync from Medicine Master.`}
+        description={`THS workbook list — ${rows.length} medicines, with sheet balances, minimum stock, and available expiry dates.`}
         action={
           <Link
             href="/medicines"
@@ -29,6 +30,9 @@ export default function ClinicListPage() {
                 <th className="px-4 py-3">#</th>
                 <th className="px-4 py-3">Medicine / item</th>
                 <th className="px-4 py-3">Type</th>
+                <th className="px-4 py-3">Minimum stock</th>
+                <th className="px-4 py-3">Sheet balance</th>
+                <th className="px-4 py-3">Expiry date</th>
               </tr>
             </thead>
             <tbody>
@@ -37,6 +41,9 @@ export default function ClinicListPage() {
                   <td className="px-4 py-2.5 text-muted">{index + 1}</td>
                   <td className="px-4 py-2.5 font-medium text-ths-dark">{row.name}</td>
                   <td className="px-4 py-2.5 text-muted">{row.itemType}</td>
+                  <td className="px-4 py-2.5">{row.minimumStock ?? "—"}</td>
+                  <td className="px-4 py-2.5">{row.currentQuantity ?? "—"}</td>
+                  <td className="px-4 py-2.5">{formatDate(row.expiryDate)}</td>
                 </tr>
               ))}
             </tbody>
@@ -47,11 +54,11 @@ export default function ClinicListPage() {
         Source:{" "}
         <a
           className="text-clinic hover:underline"
-          href="https://docs.google.com/spreadsheets/d/1E5alXvmfh8dGeuI7yGWDzN7mwOaFC6DS/edit"
+          href="https://docs.google.com/spreadsheets/d/1lTdoDTwg7DhF6VHFY_KBHFPHqxjz2OO9/edit"
           target="_blank"
           rel="noreferrer"
         >
-          THS Medical Center Medicine (Google Sheet)
+          THS Medical Center Medicine Database (Google Sheet)
         </a>
       </p>
     </div>

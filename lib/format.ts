@@ -32,17 +32,26 @@ export function isExpiringSoon(medicine: { expiryDate: string }) {
   return days >= 0 && days <= LOW_STOCK_DAYS;
 }
 
-export function isLowStock(medicine: { quantity: number }) {
-  return medicine.quantity > 0 && medicine.quantity < LOW_STOCK_THRESHOLD;
+export function isLowStock(medicine: { quantity: number; reorderLevel?: number }) {
+  const quantity = stockQuantity(medicine);
+  const reorderLevel = Number(medicine.reorderLevel);
+  const threshold = Number.isFinite(reorderLevel) && reorderLevel > 0 ? reorderLevel : LOW_STOCK_THRESHOLD;
+  return quantity > 0 && quantity < threshold;
 }
 
 export function isOutOfStock(medicine: { quantity: number }) {
-  return medicine.quantity <= 0;
+  return stockQuantity(medicine) <= 0;
+}
+
+export function stockQuantity(medicine: { quantity: number }) {
+  const quantity = Number(medicine.quantity);
+  return Number.isFinite(quantity) ? Math.max(0, quantity) : 0;
 }
 
 export function stockStatus(medicine: {
   quantity: number;
   expiryDate: string;
+  reorderLevel?: number;
 }) {
   if (isExpired(medicine)) return "expired" as const;
   if (isOutOfStock(medicine)) return "out" as const;

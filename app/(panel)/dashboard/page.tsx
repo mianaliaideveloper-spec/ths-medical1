@@ -2,20 +2,23 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Card, PageHeader, StatCard } from "@/components/shell";
 import { MedicineNameAutocomplete } from "@/components/medicine-autocomplete";
 import { inventorySummary, useStore } from "@/components/store";
-import { formatPkr, isExpired, isLowStock, isOutOfStock } from "@/lib/format";
+import { formatPkr, isExpired, isLowStock, isOutOfStock, stockQuantity } from "@/lib/format";
 
 export default function DashboardPage() {
   const router = useRouter();
   const { medicines, suppliers } = useStore();
   const [query, setQuery] = useState("");
-  const summary = inventorySummary(medicines);
-  const attention = medicines
-    .filter((item) => isExpired(item) || isLowStock(item) || isOutOfStock(item))
-    .slice(0, 6);
+  const summary = useMemo(() => inventorySummary(medicines), [medicines]);
+  const attention = useMemo(
+    () => medicines
+      .filter((item) => isExpired(item) || isLowStock(item) || isOutOfStock(item))
+      .slice(0, 6),
+    [medicines],
+  );
 
   return (
     <div>
@@ -35,7 +38,7 @@ export default function DashboardPage() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Total medicines" value={summary.total} hint="In inventory" href="/medicines" tone="blue" />
         <StatCard label="Available stock" value={summary.availableUnits} hint={`${summary.availableSkus} items in date`} href="/current-stock" tone="green" />
-        <StatCard label="Low-stock medicines" value={summary.low} hint="Less than 10 units or out" href="/low-stock-report" tone="amber" />
+        <StatCard label="Low-stock medicines" value={summary.low} hint="Below minimum or out of stock" href="/low-stock-report" tone="amber" />
         <StatCard label="Expired medicines" value={summary.expired} hint={`${summary.expiring} expiring within 90 days`} href="/expiry-report" tone="red" />
       </div>
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
@@ -46,10 +49,10 @@ export default function DashboardPage() {
             {attention.map((item) => (
               <li key={item.id} className="flex items-center justify-between gap-3 py-3 text-sm">
                 <div>
-                  <Link href={`/medicines/${item.id}`} className="font-medium text-clinic">{item.name}</Link>
+                  <Link prefetch={false} href={`/medicines/${item.id}`} className="font-medium text-clinic">{item.name}</Link>
                   <p className="text-muted">{item.strength}</p>
                 </div>
-                <p className="text-right text-muted">{item.quantity} {item.unit.toLowerCase()}s<br />Exp {item.expiryDate}</p>
+                <p className="text-right text-muted">{stockQuantity(item)} {item.unit.toLowerCase()}s<br />Exp {item.expiryDate}</p>
               </li>
             ))}
           </ul>

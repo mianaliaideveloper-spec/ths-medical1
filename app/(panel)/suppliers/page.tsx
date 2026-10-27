@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Card, EmptyState, Field, Notice, PageHeader, fieldClass } from "@/components/shell";
 import { useStore } from "@/components/store";
-import { isExpired, isLowStock, isOutOfStock, LOW_STOCK_THRESHOLD } from "@/lib/format";
+import { isExpired, isLowStock, isOutOfStock, stockQuantity } from "@/lib/format";
 import type { Medicine, Supplier } from "@/lib/types";
 
 function supplierLowStock(supplierId: string, medicines: Medicine[]) {
@@ -30,7 +30,7 @@ export default function SuppliersPage() {
   const lowBySupplier = suppliers
     .map((supplier) => ({
       supplier,
-      items: supplierLowStock(supplier.id, medicines).sort((a, b) => a.quantity - b.quantity),
+      items: supplierLowStock(supplier.id, medicines).sort((a, b) => stockQuantity(a) - stockQuantity(b)),
     }))
     .filter((row) => row.items.length > 0);
   const [form, setForm] = useState(blank);
@@ -64,7 +64,7 @@ export default function SuppliersPage() {
     <div>
       <PageHeader
         title="Suppliers"
-        description={`Supplier contacts and medicines below ${LOW_STOCK_THRESHOLD} units for each company.`}
+        description="Supplier contacts and medicines below their set minimum stock level."
       />
       <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
         <Card className="p-5">
@@ -119,7 +119,7 @@ export default function SuppliersPage() {
                               <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-warning">
                                 {lowItems.length}
                               </span>
-                              <span className="text-xs text-muted">&lt; {LOW_STOCK_THRESHOLD}</span>
+                              <span className="text-xs text-muted">under minimum</span>
                             </span>
                           )}
                         </td>
@@ -144,7 +144,7 @@ export default function SuppliersPage() {
           <div className="border-b border-line px-5 py-4">
             <h2 className="font-semibold text-ths-dark">Low stock by supplier</h2>
             <p className="text-sm text-muted">
-              In-date medicines with fewer than {LOW_STOCK_THRESHOLD} units — call or order from the supplier listed.
+              In-date medicines below minimum stock — call or order from the supplier listed.
             </p>
           </div>
           <div className="divide-y divide-line">
@@ -159,11 +159,11 @@ export default function SuppliersPage() {
                 <ul className="mt-3 space-y-2">
                   {items.map((medicine) => (
                     <li key={medicine.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                      <Link className="text-clinic" href={`/medicines/${medicine.id}`}>
+                      <Link prefetch={false} className="text-clinic" href={`/medicines/${medicine.id}`}>
                         {medicine.name}
                       </Link>
-                      <span className={medicine.quantity <= 0 ? "text-danger" : "text-warning"}>
-                        {medicine.quantity <= 0 ? "Out of stock" : `${medicine.quantity} left`}
+                      <span className={isOutOfStock(medicine) ? "text-danger" : "text-warning"}>
+                        {isOutOfStock(medicine) ? "Out of stock" : `${stockQuantity(medicine)} left`}
                       </span>
                     </li>
                   ))}

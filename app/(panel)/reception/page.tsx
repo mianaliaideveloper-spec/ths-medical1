@@ -12,12 +12,15 @@ const blank = {
   phone: "",
 };
 
+const SAVED_VISIT_PAGE_SIZE = 50;
+
 export default function ReceptionPage() {
-  const { receptionVisits, registerReceptionVisit, adjustStock, markReceptionMedicineIssued } = useStore();
+  const { receptionVisits, registerReceptionVisit, markReceptionMedicineIssued } = useStore();
   const [form, setForm] = useState(blank);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [issuingId, setIssuingId] = useState("");
+  const [visibleHistoryCount, setVisibleHistoryCount] = useState(SAVED_VISIT_PAGE_SIZE);
 
   const today = todayIso();
   const todayVisits = useMemo(
@@ -40,9 +43,13 @@ export default function ReceptionPage() {
   }
 
   const phoneDigits = form.phone.replace(/\D/g, "");
-  const previousRecords = phoneDigits.length >= 7
-    ? receptionVisits.filter((visit) => (visit.phone || "").replace(/\D/g, "") === phoneDigits)
-    : [];
+  const previousRecords = useMemo(
+    () => phoneDigits.length >= 7
+      ? receptionVisits.filter((visit) => (visit.phone || "").replace(/\D/g, "") === phoneDigits)
+      : [],
+    [phoneDigits, receptionVisits],
+  );
+  const visibleHistory = receptionVisits.slice(0, visibleHistoryCount);
   const previousPatientId = previousRecords[0]?.patientId
     || (previousRecords[0] ? `THS-P-${previousRecords[0].id.slice(0, 8).toUpperCase()}` : "");
 
@@ -51,11 +58,8 @@ export default function ReceptionPage() {
     if (!visit?.prescription?.length) return;
     setError(""); setIssuingId(id);
     try {
-      for (const item of visit.prescription) {
-        await adjustStock(item.medicineId, "out", item.quantity, `Patient ${visit.slipNumber}`);
-      }
       await markReceptionMedicineIssued(id);
-    } catch (err) { setError(err instanceof Error ? err.message : "Could not issue prescribed medicines."); }
+    } catch (err) { setError(err instanceof Error ? err.message : "Could not confirm medicine issue."); }
     finally { setIssuingId(""); }
   }
 
@@ -175,7 +179,7 @@ export default function ReceptionPage() {
         <Card className="mt-4">
           <div className="border-b border-line px-5 py-4">
             <h2 className="font-semibold text-ths-dark">All saved visits</h2>
-            <p className="text-sm text-muted">{receptionVisits.length} total on this computer / account</p>
+            <p className="text-sm text-muted">{receptionVisits.length} total on this account · showing {visibleHistory.length}</p>
           </div>
           <div className="table-wrap max-h-[420px] overflow-auto">
             <table className="data">
@@ -189,7 +193,7 @@ export default function ReceptionPage() {
                 </tr>
               </thead>
               <tbody>
-                {receptionVisits.map((item) => (
+                {visibleHistory.map((item) => (
                   <tr key={item.id}>
                     <td className="text-xs">{formatDateTime(item.createdAt)}</td>
                     <td className="font-mono text-xs">{item.patientId || `THS-P-${item.id.slice(0, 8).toUpperCase()}`}</td>
@@ -201,6 +205,17 @@ export default function ReceptionPage() {
               </tbody>
             </table>
           </div>
+          {visibleHistory.length < receptionVisits.length && (
+            <div className="border-t border-line px-5 py-3 text-center">
+              <button
+                type="button"
+                className="text-sm font-semibold text-clinic"
+                onClick={() => setVisibleHistoryCount((count) => Math.min(count + SAVED_VISIT_PAGE_SIZE, receptionVisits.length))}
+              >
+                Load 50 older visits
+              </button>
+            </div>
+          )}
         </Card>
       )}
     </div>

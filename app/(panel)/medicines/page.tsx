@@ -32,9 +32,9 @@ function MedicinesTable() {
     setImportNote("");
     try {
       const result = await importThsSheetCatalog();
-      setImportNote(result.added > 0
-        ? `Added ${result.added} missing medicines. Enter counted stock for items you physically have.`
-        : `THS list is up to date — ${medicines.length} medicines.`);
+      setImportNote(result.added > 0 || result.updated > 0
+        ? `Added ${result.added} missing medicines and synced ${result.updated} existing records. New and previously empty stock balances came from the sheet; live nonzero stock was preserved. Expiry dates are copied from the sheet, and blank dates stay blank.`
+        : `THS list is up to date — ${result.total} medicines.`);
     } catch (err) {
       setImportNote(err instanceof Error ? err.message : "Could not sync the clinic list.");
     } finally {
@@ -59,7 +59,7 @@ function MedicinesTable() {
     <div>
       <PageHeader
         title="Medicine Master"
-        description={`Final clinic list: ${catalogSize} names. Use Sync THS list when you want to add missing items to inventory.`}
+        description={`Clinic workbook: ${catalogSize} medicines. Sync adds missing items and refreshes expiry and minimum-stock details.`}
         action={
           <div className="flex flex-wrap gap-2">
             <button

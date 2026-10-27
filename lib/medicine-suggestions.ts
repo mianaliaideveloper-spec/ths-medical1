@@ -28,13 +28,13 @@ function catalog(): MedicineSuggestion[] {
   return list;
 }
 
-export function filterMedicineSuggestions(
-  query: string,
-  inventory: Medicine[],
-  limit = 10,
-): MedicineSuggestion[] {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return [];
+const catalogSuggestions = catalog();
+const inventorySuggestionCache = new WeakMap<Medicine[], MedicineSuggestion[]>();
+const genericNameCache = new WeakMap<Medicine[], string[]>();
+
+function inventorySuggestions(inventory: Medicine[]) {
+  const cached = inventorySuggestionCache.get(inventory);
+  if (cached) return cached;
 
   const merged = new Map<string, MedicineSuggestion>();
   for (const item of inventory) {
@@ -45,18 +45,40 @@ export function filterMedicineSuggestions(
       medicineId: item.id,
     });
   }
-  for (const item of catalog()) {
+  for (const item of catalogSuggestions) {
     const key = item.name.trim().toLowerCase();
     if (!merged.has(key)) merged.set(key, item);
   }
 
-  const inventoryFirst = [...merged.values()].sort((a, b) => {
+  const sorted = [...merged.values()].sort((a, b) => {
     if (a.medicineId && !b.medicineId) return -1;
     if (!a.medicineId && b.medicineId) return 1;
     return a.name.localeCompare(b.name);
   });
+  inventorySuggestionCache.set(inventory, sorted);
+  return sorted;
+}
 
-  return inventoryFirst
+function inventoryGenericNames(inventory: Medicine[]) {
+  const cached = genericNameCache.get(inventory);
+  if (cached) return cached;
+  const names = new Set<string>();
+  for (const item of inventory) names.add(item.genericName);
+  for (const item of catalogSuggestions) names.add(item.genericName);
+  const sorted = [...names].sort((a, b) => a.localeCompare(b));
+  genericNameCache.set(inventory, sorted);
+  return sorted;
+}
+
+export function filterMedicineSuggestions(
+  query: string,
+  inventory: Medicine[],
+  limit = 10,
+): MedicineSuggestion[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [];
+
+  return inventorySuggestions(inventory)
     .filter(
       (item) =>
         item.name.toLowerCase().includes(needle) ||
@@ -72,11 +94,7 @@ export function filterGenericSuggestions(
 ): string[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return [];
-  const names = new Set<string>();
-  for (const item of inventory) names.add(item.genericName);
-  for (const item of catalog()) names.add(item.genericName);
-  return [...names]
+  return inventoryGenericNames(inventory)
     .filter((name) => name.toLowerCase().includes(needle))
-    .sort((a, b) => a.localeCompare(b))
     .slice(0, limit);
 }
