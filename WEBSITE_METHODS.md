@@ -38,6 +38,8 @@ Yeh document website mein istemal ki gayi technology aur development methods ka 
 
 Firebase web configuration `.env.local` mein hai. Ismein Firebase account ka password nahi rakha jata; password Firebase Authentication mein manage hota hai. Environment file badalne ke baad local dev server restart karna hota hai.
 
+Vercel par `.env.local` upload karne ke bajaye `env.example` ke variables Project Settings → Environment Variables mein Production (aur zarurat par Preview) ke liye set karein, phir naya deployment banayein. Account password ko environment variable mein na rakhein.
+
 ```bash
 npm install
 npm run dev
