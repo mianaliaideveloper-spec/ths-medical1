@@ -9,11 +9,13 @@ import { useStore } from "@/components/store";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { user, ready, login } = useStore();
+  const { user, ready, login, requestPasswordReset } = useStore();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetMessage, setResetMessage] = useState("");
 
   useEffect(() => {
     if (ready && user) router.replace("/dashboard");
@@ -39,6 +41,24 @@ export default function LoginPage() {
       }
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onResetPassword() {
+    setError("");
+    setResetMessage("");
+    if (!username.trim()) {
+      setError("Enter THS Medical 5 or your Firebase email first.");
+      return;
+    }
+    setResetBusy(true);
+    try {
+      await requestPasswordReset(username);
+      setResetMessage("If the account is registered, Firebase has sent a password-reset email to its email address.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not request a password reset.");
+    } finally {
+      setResetBusy(false);
     }
   }
 
@@ -79,7 +99,7 @@ export default function LoginPage() {
               autoComplete="username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Email or store username"
+                placeholder="THS Medical 5 or email"
                 required
               />
             </Field>
@@ -90,7 +110,18 @@ export default function LoginPage() {
               autoComplete="current-password"
               maxLength={64}
             />
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={onResetPassword}
+                disabled={busy || resetBusy}
+                className="text-sm font-medium text-clinic-dark underline-offset-4 hover:underline disabled:opacity-60"
+              >
+                {resetBusy ? "Sending reset email…" : "Forgot password?"}
+              </button>
+            </div>
             {error && <Notice>{error}</Notice>}
+            {resetMessage && <p role="status" className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">{resetMessage}</p>}
             <button
               disabled={busy}
               className="w-full rounded-lg bg-clinic px-4 py-2.5 text-sm font-semibold text-white hover:bg-clinic-dark disabled:opacity-60"

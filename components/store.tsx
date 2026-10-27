@@ -131,6 +131,7 @@ type StoreContextValue = {
   markReceptionMedicineIssued: (id: string) => Promise<void>;
   saveReceptionPrescription: (id: string, prescription: PrescribedMedicine[], doctorNote: string, complaint?: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
+  requestPasswordReset: (emailOrUsername: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (input: ProfileUpdateInput) => Promise<void>;
@@ -153,6 +154,8 @@ type StoreContextValue = {
   importThsSheetCatalog: () => Promise<{ added: number; total: number; catalogSize: number }>;
 };
 
+const FIRESTORE_ACTOR_LABEL = "THS Medical Admin";
+
 const StoreContext = createContext<StoreContextValue | null>(null);
 
 function inventoryRevision(medicines: Medicine[]) {
@@ -169,10 +172,27 @@ function firebaseLoginError(error: unknown) {
   if (code.includes("auth/invalid-credential") || code.includes("auth/wrong-password") || code.includes("auth/user-not-found")) return "Email or password is incorrect.";
   if (code.includes("auth/too-many-requests")) return "Too many sign-in attempts. Wait a little and try again.";
   if (code.includes("auth/network-request-failed")) return "Could not reach the sign-in service. Check your internet connection.";
-  if (code.includes("auth/operation-not-allowed")) return "Email and password sign-in is not enabled for this Firebase project.";
-  if (code.includes("auth/configuration-not-found") || code.includes("CONFIGURATION_NOT_FOUND")) return "Firebase Email/Password sign-in is not enabled yet. Deploy the Authentication settings for this project, then try again.";
+  if (code.includes("auth/operation-not-allowed") || code.includes("auth/configuration-not-found") || code.includes("CONFIGURATION_NOT_FOUND")) return "Firebase Email/Password login is off. Ask the project owner to enable it or run scripts/setup-firebase.cmd from this project folder.";
   if (code.includes("auth/invalid-api-key")) return "Firebase sign-in is not configured correctly for this website.";
   return "Could not sign in. Check your account details and Firebase setup, then try again.";
+}
+
+function resolveFirebaseLoginEmail(value: string) {
+  const enteredId = value.trim().toLowerCase();
+  const normalizedId = enteredId.replace(/\s+/g, "");
+  const loginAlias = (process.env.NEXT_PUBLIC_STORE_LOGIN_ALIAS || "THS Medical 5")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+  const firebaseEmail = enteredId.includes("@")
+    ? enteredId
+    : normalizedId === loginAlias
+      ? FIXED_AUTH_USERNAME.trim().toLowerCase()
+      : "";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(firebaseEmail)) {
+    throw new Error("Enter your store username or a valid Firebase account email.");
+  }
+  return firebaseEmail;
 }
 
 function openLocalSession(
@@ -270,26 +290,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return;
         }
         try {
-          const adminSnapshot = await firestoreApi!.getDoc(doc(firebase.db, "admins", firebaseUser.uid));
-          if (!adminSnapshot.exists() || adminSnapshot.data().role !== "admin") {
+          const allowedEmail = FIXED_AUTH_USERNAME.trim().toLowerCase();
+          if ((firebaseUser.email || "").trim().toLowerCase() !== allowedEmail) {
             await authApi.signOut(firebase.auth);
-            setAuthError("This Firebase account is not enabled as a medical-center admin.");
+            setAuthError("Use the configured THS Medical admin email to sign in.");
             setUser(null);
             setAdmin(null);
-          } else {
-            const profile = adminSnapshot.data();
-            const session: DeskSession = {
-              uid: firebaseUser.uid,
-              email: firebaseUser.email || "",
-              name: typeof profile.name === "string" ? profile.name : firebaseUser.displayName || "THS Medical",
-              photoURL: firebaseUser.photoURL || undefined,
-            };
-            setUser(session);
-            setAdmin({ uid: session.uid, email: session.email, name: session.name, role: "admin", createdAt: typeof profile.createdAt === "string" ? profile.createdAt : "", photoURL: session.photoURL });
+            return;
           }
+          const session: DeskSession = {
+            uid: firebaseUser.uid,
+            email: firebaseUser.email || allowedEmail,
+            name: firebaseUser.displayName || FIXED_AUTH_NAME,
+            photoURL: firebaseUser.photoURL || undefined,
+          };
+          setUser(session);
+          setAdmin({ uid: session.uid, email: session.email, name: session.name, role: "admin", createdAt: "", photoURL: session.photoURL });
         } catch (error) {
           console.error("Firebase sign-in could not be verified.", error);
-          setAuthError("Could not verify this Firebase account. Check Firestore rules and admin setup.");
+          setAuthError("Could not verify this Firebase account. Check the configured admin email.");
           setUser(null);
           setAdmin(null);
         } finally {
@@ -522,7 +541,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           slipFee: RECEPTION_SLIP_FEE_PKR,
           status: "waiting_doctor",
           createdAt: now,
-          createdBy: user?.email || admin?.name || "reception",
+          createdBy: FIRESTORE_ACTOR_LABEL,
         };
         if (isLocalAdmin(user?.uid)) {
           const data = readDeskData();
@@ -558,7 +577,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           phone,
           fee: 0,
           createdAt: new Date().toISOString(),
-          createdBy: user?.email || admin?.name || "reception",
+          createdBy: FIRESTORE_ACTOR_LABEL,
         };
         const firebase = await firebaseOrThrow();
         const payload = withoutId(student);
@@ -594,21 +613,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return;
         }
         const [firebase, authApi] = await Promise.all([loadFirebaseClient(), import("firebase/auth")]);
-        const enteredId = email.trim().toLowerCase();
-        const loginAlias = (process.env.NEXT_PUBLIC_STORE_LOGIN_ALIAS || "thsmedical5").trim().toLowerCase();
-        // Firebase Auth needs an email. Resolve the configured store alias to its
-        // Firebase account email; the password is still checked by Firebase.
-        const firebaseEmail = enteredId.includes("@")
-          ? enteredId
-          : enteredId === loginAlias
-            ? FIXED_AUTH_USERNAME.trim().toLowerCase()
-            : "";
-        // Stop unknown usernames and malformed emails before calling Firebase.
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(firebaseEmail)) {
-          throw new Error("Enter a valid email address for your Firebase account.");
-        }
+        // Firebase Auth needs an email. Resolve the store username alias first.
+        const firebaseEmail = resolveFirebaseLoginEmail(email);
         try {
           await authApi.signInWithEmailAndPassword(firebase.auth, firebaseEmail, password);
+        } catch (error) {
+          throw new Error(firebaseLoginError(error));
+        }
+      },
+      async requestPasswordReset(emailOrUsername) {
+        const firebaseEmail = resolveFirebaseLoginEmail(emailOrUsername);
+        if (localDeskMode) {
+          throw new Error("Password reset is not available in offline desk mode.");
+        }
+        try {
+          const [firebase, authApi] = await Promise.all([loadFirebaseClient(), import("firebase/auth")]);
+          await authApi.sendPasswordResetEmail(firebase.auth, firebaseEmail);
         } catch (error) {
           throw new Error(firebaseLoginError(error));
         }
@@ -807,7 +827,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               balanceAfter: next,
               note: note.trim(),
               createdAt: now,
-              createdBy: user?.email || "admin",
+              createdBy: FIRESTORE_ACTOR_LABEL,
             },
             ...data.movements,
           ];
@@ -839,7 +859,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             balanceAfter: next,
             note: note.trim(),
             createdAt: now,
-            createdBy: user?.email || "admin",
+            createdBy: FIRESTORE_ACTOR_LABEL,
           });
         });
       },
@@ -884,7 +904,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const note = "Customer bill";
         if (isLocalAdmin(user?.uid)) {
           const data = readDeskData();
-          const result = applyCustomerBillStockLocal(data, rows, user?.email || "admin", note);
+          const result = applyCustomerBillStockLocal(data, rows, FIRESTORE_ACTOR_LABEL, note);
           writeDeskData(result.data);
           setMedicines(result.data.medicines);
           setMovements(result.data.movements);
@@ -916,7 +936,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             const balanceAfter = item.quantity - issued;
             tx.update(medicineRefs[i], { quantity: balanceAfter, updatedAt: now });
             const movementRef = doc(collection(firebase.db, "stockMovements"));
-            tx.set(movementRef, { medicineId: item.id, medicineName: item.name, type: "out", quantity: issued, balanceAfter, note, createdAt: now, createdBy: user.email });
+            tx.set(movementRef, { medicineId: item.id, medicineName: item.name, type: "out", quantity: issued, balanceAfter, note, createdAt: now, createdBy: FIRESTORE_ACTOR_LABEL });
             summary.push({ kind: "medicine", name: item.name, issued, unit: item.unit, balanceAfter });
           }
           for (let i = 0; i < rentRefs.length; i += 1) {
@@ -925,7 +945,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             const balanceAfter = item.quantity - issued;
             tx.update(rentRefs[i], { quantity: balanceAfter, updatedAt: now });
             const movementRef = doc(collection(firebase.db, "stockMovements"));
-            tx.set(movementRef, { medicineId: "", medicineName: item.name, type: "out", quantity: issued, balanceAfter, note, createdAt: now, createdBy: user.email, rentItemId: item.id });
+            tx.set(movementRef, { medicineId: "", medicineName: item.name, type: "out", quantity: issued, balanceAfter, note, createdAt: now, createdBy: FIRESTORE_ACTOR_LABEL, rentItemId: item.id });
             summary.push({ kind: "rent", name: item.name, issued, unit: item.unit, balanceAfter });
           }
           return summary;
