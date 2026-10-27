@@ -62,6 +62,7 @@ export function isValidCnic(value: string) {
 }
 
 export type ReceptionFormInput = {
+  patientNumber: string;
   patientName: string;
   cnic: string;
   age: number;
@@ -70,6 +71,10 @@ export type ReceptionFormInput = {
 };
 
 export function validateReceptionInput(input: ReceptionFormInput) {
+  const patientNumber = input.patientNumber.trim();
+  if (!/^\d{1,20}$/.test(patientNumber)) {
+    throw new Error("Enter the patient's numeric ID (1–20 digits).");
+  }
   if (!input.patientName.trim()) {
     throw new Error("Patient name is required.");
   }
@@ -84,6 +89,7 @@ export function validateReceptionInput(input: ReceptionFormInput) {
     throw new Error("Enter a valid age (1–120).");
   }
   return {
+    patientNumber,
     patientName: input.patientName.trim(),
     cnic: formatCnic(input.cnic),
     age,

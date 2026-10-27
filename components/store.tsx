@@ -140,7 +140,7 @@ type StoreContextValue = {
   registerReceptionVisit: (input: ReceptionVisitInput) => Promise<ReceptionVisit>;
   registerSchoolStudent: (input: SchoolStudentInput) => Promise<SchoolStudent>;
   markReceptionMedicineIssued: (id: string) => Promise<void>;
-  saveReceptionPrescription: (id: string, prescription: PrescribedMedicine[], doctorNote: string, complaint?: string) => Promise<void>;
+  saveReceptionPrescription: (id: string, prescription: PrescribedMedicine[], doctorNote: string, complaint: string | undefined, followUpDays: number) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   requestPasswordReset: (emailOrUsername: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
@@ -409,8 +409,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       movements,
       receptionVisits,
       schoolStudents,
-      async saveReceptionPrescription(id, prescription, doctorNote, complaint) {
+      async saveReceptionPrescription(id, prescription, doctorNote, complaint, followUpDays) {
+        if (!Number.isSafeInteger(followUpDays) || followUpDays < 1 || followUpDays > 365) {
+          throw new Error("Set the return visit interval from 1 to 365 days.");
+        }
         const prescribedAt = new Date().toISOString();
+        const followUpDate = new Date(Date.parse(prescribedAt) + followUpDays * 24 * 60 * 60 * 1000).toISOString();
         const savedPrescription = prescription.map((item) => ({
           ...item,
           quantity: Number(item.quantity),
@@ -440,6 +444,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 prescription: savedPrescription,
                 doctorNote: doctorNote.trim(),
                 ...(complaint !== undefined ? { complaint: complaint.trim() } : {}),
+                followUpDays,
+                followUpDate,
                 prescribedAt,
                 stockDeductedAt: prescribedAt,
                 status: "waiting_reception" as const,
@@ -485,6 +491,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             prescription: savedPrescription,
             doctorNote: doctorNote.trim(),
             ...(complaint !== undefined ? { complaint: complaint.trim() } : {}),
+            followUpDays,
+            followUpDate,
             prescribedAt,
             stockDeductedAt: prescribedAt,
             status: "waiting_reception",
@@ -621,15 +629,35 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const validated = validateReceptionInput(input);
         const now = new Date().toISOString();
         const normalizedPhone = phoneDigits(validated.phone);
-        const previousVisit = normalizedPhone
+        const normalizeName = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();
+        const normalizedPatientNumber = validated.patientNumber.trim();
+        const sameIdVisit = receptionVisits.find(
+          (item) => item.patientNumber?.trim() === normalizedPatientNumber,
+        );
+        if (sameIdVisit && normalizeName(sameIdVisit.patientName) !== normalizeName(validated.patientName)) {
+          throw new Error("Patient ID " + normalizedPatientNumber + " already belongs to " + sameIdVisit.patientName + ". Search that ID and use its record.");
+        }
+        const phoneMatch = normalizedPhone
           ? receptionVisits.find((item) => phoneDigits(item.phone) === normalizedPhone)
           : undefined;
+        const samePhonePatient = phoneMatch
+          && normalizeName(phoneMatch.patientName) === normalizeName(validated.patientName)
+          ? phoneMatch
+          : undefined;
+        if (
+          samePhonePatient?.patientNumber
+          && samePhonePatient.patientNumber.trim() !== normalizedPatientNumber
+        ) {
+          throw new Error("This patient already has ID " + samePhonePatient.patientNumber + ". Search by that ID to register the return visit.");
+        }
+        const previousVisit = sameIdVisit || samePhonePatient;
         const patientId = previousVisit?.patientId
           || (previousVisit ? `THS-P-${previousVisit.id.slice(0, 8).toUpperCase()}` : `THS-P-${crypto.randomUUID().slice(0, 8).toUpperCase()}`);
         const tokenNumber = nextTokenNumber(receptionVisits);
         const visit: ReceptionVisit = {
           id: crypto.randomUUID(),
           patientId,
+          patientNumber: normalizedPatientNumber,
           tokenNumber,
           slipNumber: nextSlipNumber(receptionVisits),
           patientName: validated.patientName,

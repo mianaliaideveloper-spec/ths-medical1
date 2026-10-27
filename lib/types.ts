@@ -65,6 +65,8 @@ export type ReceptionVisit = {
   id: string;
   /** Stable patient identity reused across visits when the phone number matches. */
   patientId?: string;
+  /** Reception-assigned numeric patient ID reused across visits. */
+  patientNumber?: string;
   /** Daily queue number (1 = first slip of the day). */
   tokenNumber: number;
   slipNumber: string;
@@ -77,6 +79,8 @@ export type ReceptionVisit = {
   status: ReceptionVisitStatus;
   prescription?: PrescribedMedicine[];
   doctorNote?: string;
+  followUpDays?: number;
+  followUpDate?: string;
   prescribedAt?: string;
   /** Inventory was deducted atomically when this prescription was saved. */
   stockDeductedAt?: string;
@@ -86,6 +90,7 @@ export type ReceptionVisit = {
 };
 
 export type ReceptionVisitInput = {
+  patientNumber: string;
   patientName: string;
   cnic: string;
   age: number;

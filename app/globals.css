@@ -81,3 +81,40 @@ table.data td {
 table.data tr:hover td {
   background: #f8fbf9;
 }
+
+.reception-token-slip {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A5 portrait;
+    margin: 10mm;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .reception-token-slip,
+  .reception-token-slip * {
+    visibility: visible !important;
+  }
+
+  .reception-token-slip {
+    display: block !important;
+    position: fixed;
+    top: 0;
+    left: 0;
+    box-sizing: border-box;
+    width: 100%;
+    padding: 10mm;
+    background: #fff !important;
+    color: #000 !important;
+    font-family: Arial, sans-serif;
+  }
+}
