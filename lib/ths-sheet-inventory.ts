@@ -3,6 +3,7 @@ import { medicineNameCatalog, type MedicineNameCatalogEntry } from "@/lib/medici
 import { prepareMedicineForSave } from "@/lib/medicine-save";
 import { formatStrength, parseStrength } from "@/lib/strength";
 import type { Category, Medicine, MedicineInput, Supplier } from "@/lib/types";
+import { THS_SHEET_SOURCE_VERSION } from "@/lib/ths-medicine-sheet-data";
 
 export const THS_SHEET_SUPPLIER_NAME = "THS Medical Center";
 
@@ -136,16 +137,19 @@ export function buildThsSheetMedicineRows(
       createdAt: now,
       updatedAt: now,
     };
-    if (entry.currentQuantity !== null) row.sheetStockImportedAt = now;
+    if (entry.currentQuantity !== null) {
+      row.sheetStockImportedAt = now;
+      row.sheetStockImportVersion = THS_SHEET_SOURCE_VERSION;
+    }
     rows.push(row);
   }
   return rows;
 }
 
 export type ThsSheetMedicineUpdate = Pick<Medicine, "id" | "expiryDate" | "reorderLevel">
-  & Partial<Pick<Medicine, "quantity" | "sheetStockImportedAt">>;
+  & Partial<Pick<Medicine, "quantity" | "sheetStockImportedAt" | "sheetStockImportVersion">>;
 
-/** Import an initial sheet balance for old empty records once; preserve all later live stock. */
+/** Import a workbook balance once per source version; preserve later live stock. */
 export function buildThsSheetMedicineUpdates(existingMedicines: Medicine[]): ThsSheetMedicineUpdate[] {
   const sourceByName = new Map(medicineNameCatalog.map((entry) => [normalizeMedicineName(entry.name), entry]));
   const updates: ThsSheetMedicineUpdate[] = [];
@@ -154,25 +158,31 @@ export function buildThsSheetMedicineUpdates(existingMedicines: Medicine[]): Ths
   for (const existing of existingMedicines) {
     const source = sourceByName.get(normalizeMedicineName(existing.name));
     if (!source) continue;
-    const expiryDate = source.expiryDate || "";
+    const expiryDate = source.expiryDate || existing.expiryDate;
     const reorderLevel = source.minimumStock ?? existing.reorderLevel;
-    const canImportSheetQuantity = existing.sheetStockImportedAt === undefined && source.currentQuantity !== null;
-    const quantity = existing.sheetStockImportedAt === undefined
-      && source.currentQuantity !== null
-      && existing.quantity === 0
-      ? source.currentQuantity
+    const canImportSheetQuantity = source.currentQuantity !== null
+      && existing.sheetStockImportVersion !== THS_SHEET_SOURCE_VERSION;
+    const quantity = canImportSheetQuantity
+      ? source.currentQuantity ?? existing.quantity
       : existing.quantity;
     const sheetStockImportedAt = canImportSheetQuantity ? now : existing.sheetStockImportedAt;
+    const sheetStockImportVersion = canImportSheetQuantity
+      ? THS_SHEET_SOURCE_VERSION
+      : existing.sheetStockImportVersion;
     if (
       existing.expiryDate === expiryDate
       && existing.reorderLevel === reorderLevel
       && existing.quantity === quantity
       && existing.sheetStockImportedAt === sheetStockImportedAt
+      && existing.sheetStockImportVersion === sheetStockImportVersion
     ) continue;
     const update: ThsSheetMedicineUpdate = { id: existing.id, expiryDate, reorderLevel };
     if (quantity !== existing.quantity) update.quantity = quantity;
     if (sheetStockImportedAt !== undefined && sheetStockImportedAt !== existing.sheetStockImportedAt) {
       update.sheetStockImportedAt = sheetStockImportedAt;
+    }
+    if (sheetStockImportVersion !== undefined && sheetStockImportVersion !== existing.sheetStockImportVersion) {
+      update.sheetStockImportVersion = sheetStockImportVersion;
     }
     updates.push(update);
   }

@@ -41,8 +41,10 @@ export type Medicine = {
   /** Suggested tablets per dose (optional). */
   doseTablets: number;
   shelf: string;
-  /** Marks the first imported workbook balance so later syncs do not reset live stock. */
+  /** Records when the current workbook stock baseline was imported. */
   sheetStockImportedAt?: string;
+  /** Identifies the workbook snapshot used for the last stock baseline import. */
+  sheetStockImportVersion?: string;
   createdAt: string;
   updatedAt: string;
 };

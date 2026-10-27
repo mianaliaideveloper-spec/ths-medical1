@@ -1,31 +1,69 @@
 import path from "node:path";
-import { writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
 import XLSX from "xlsx";
 
 const workbookPath = process.argv[2];
-if (!workbookPath) {
-  throw new Error("Pass the downloaded THS Medical Center Medicine Database .xlsx file path.");
-}
-const outPath = path.resolve("lib/ths-medicine-sheet-data.ts");
-const workbook = XLSX.readFile(workbookPath);
-
-function sheetRows(name) {
-  const sheet = workbook.Sheets[name];
-  if (!sheet) throw new Error(`Workbook is missing the ${name} sheet.`);
-  return XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true });
+if (!workbookPath) throw new Error("Pass the Medicine_Inventory.xlsx file path.");
+const quantityMode = process.argv[3] || "b2-current";
+const importerVersion = "2";
+if (quantityMode !== "sum" && quantityMode !== "b2-current") {
+  throw new Error("Quantity mode must be 'sum' or 'b2-current'.");
 }
 
-function headerIndex(header, name) {
-  return header.findIndex((value) => String(value ?? "").trim().toLowerCase() === name.toLowerCase());
-}
+const root = process.cwd();
+const outPath = path.join(root, "lib", "ths-medicine-sheet-data.ts");
+const workbookBytes = await readFile(workbookPath);
+const sourceVersion = createHash("sha256")
+  .update("importer-version=" + importerVersion + "\nquantity-mode=" + quantityMode + "\n")
+  .update(workbookBytes)
+  .digest("hex")
+  .slice(0, 16);
+const workbook = XLSX.read(workbookBytes, { type: "buffer", cellDates: true });
+const sheetName = workbook.SheetNames.find((name) => name.toLowerCase() === "medicine inventory");
+if (!sheetName) throw new Error("Workbook is missing the 'Medicine Inventory' sheet.");
+const worksheet = workbook.Sheets[sheetName];
+const sourceRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null, raw: true });
+const [header, ...rows] = sourceRows;
 
-function normType(raw) {
-  const text = String(raw ?? "").trim();
-  const known = { gel: "Gel", syrup: "Syrup", pkt: "Pkt", tape: "Tape", drops: "Drops" };
-  return known[text.toLowerCase()] || (text ? text[0].toUpperCase() + text.slice(1) : "Tablet");
+function normalizeHeader(value) {
+  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
+function findColumn(expected) {
+  const index = header.findIndex((value) => normalizeHeader(value) === normalizeHeader(expected));
+  if (index < 0) throw new Error("Workbook is missing the '" + expected + "' column.");
+  return index;
+}
+const nameIndex = findColumn("Medicine Name");
+const typeIndex = findColumn("Type");
+const expiryIndex = findColumn("Expiry (MM-YYYY)");
+const b1QuantityIndex = findColumn("Quantity B-1");
+const b2QuantityIndex = findColumn("Quantity B-2");
 
-function normName(raw, itemType) {
+function normalizeType(raw, name) {
+  const value = String(raw ?? "").trim();
+  if (value) {
+    const knownTypes = {
+      tablet: "Tablet",
+      capsule: "Capsule",
+      syrup: "Syrup",
+      ointment: "Ointment",
+      gel: "Gel",
+      cream: "Cream",
+      balm: "Balm",
+      injection: "Injection",
+      lotion: "Lotion",
+      "medical item": "Medical Item",
+      drops: "Drops",
+      pkt: "Pkt",
+      tape: "Tape",
+    };
+    return knownTypes[value.toLowerCase()] || value[0].toUpperCase() + value.slice(1);
+  }
+  const inferred = String(name).match(/(syrup|injection|lotion|cream|gel|ointment|capsule|tablet|drops|tape|balm)$/i);
+  return inferred ? inferred[1][0].toUpperCase() + inferred[1].slice(1).toLowerCase() : "Tablet";
+}
+function normalizeName(raw, itemType) {
   const name = String(raw ?? "").trim().replace(/\s+/g, " ");
   if (/^pcm$/i.test(name) && itemType === "Syrup") return "PCM Syrup";
   if (/^flagyl$/i.test(name) && itemType === "Syrup") return "Flagyl Syrup";
@@ -33,86 +71,116 @@ function normName(raw, itemType) {
   if (/^nitto$/i.test(name) && itemType === "Tape") return "Nitto Tape";
   return name;
 }
-
-function dateValue(value) {
-  if (!value) return "";
+function normalizeKey(value) {
+  return String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+function numericQuantity(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const quantity = Number(value);
+  if (!Number.isFinite(quantity)) throw new Error("Invalid stock quantity: " + String(value));
+  return Math.max(0, Math.floor(quantity));
+}
+function quantityValue(b1Raw, b2Raw) {
+  const b1 = numericQuantity(b1Raw);
+  const b2 = numericQuantity(b2Raw);
+  if (quantityMode === "sum") {
+    if (b1 === null && b2 === null) return null;
+    return (b1 ?? 0) + (b2 ?? 0);
+  }
+  return b2 ?? b1;
+}
+function expiryValue(value, rowNumber) {
+  if (value === null || value === undefined || String(value).trim() === "") return "";
+  let year;
+  let month;
   if (value instanceof Date && Number.isFinite(value.getTime())) {
-    return `${String(value.getFullYear()).padStart(4, "0")}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
-  }
-  if (typeof value === "number") {
+    year = value.getFullYear();
+    month = value.getMonth() + 1;
+  } else if (typeof value === "number") {
     const parsed = XLSX.SSF.parse_date_code(value);
-    if (parsed) return `${String(parsed.y).padStart(4, "0")}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
+    if (parsed) {
+      year = parsed.y;
+      month = parsed.m;
+    }
   }
-  const text = String(value).trim();
-  const parsed = new Date(text);
-  return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : text;
+  if (year === undefined) {
+    const text = String(value).trim();
+    const monthYear = text.match(/^(\d{1,2})[-/.](\d{4})$/);
+    if (monthYear) {
+      month = Number(monthYear[1]);
+      year = Number(monthYear[2]);
+    } else {
+      const parsed = new Date(text);
+      if (Number.isFinite(parsed.getTime())) {
+        year = parsed.getFullYear();
+        month = parsed.getMonth() + 1;
+      }
+    }
+  }
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    throw new Error("Invalid expiry date at spreadsheet row " + rowNumber + ": " + String(value));
+  }
+  const lastDay = new Date(year, month, 0).getDate();
+  return String(year).padStart(4, "0") + "-" + String(month).padStart(2, "0") + "-" + String(lastDay).padStart(2, "0");
 }
 
-function keyedRows(name, medicineColumn, typeColumn, valueColumn) {
-  const [header, ...rows] = sheetRows(name);
-  const medicineIndex = headerIndex(header, medicineColumn);
-  const typeIndex = headerIndex(header, typeColumn);
-  const valueIndex = headerIndex(header, valueColumn);
-  const output = new Map();
-  for (const row of rows) {
-    const medicineName = row[medicineIndex];
-    if (!medicineName) continue;
-    const type = normType(row[typeIndex]);
-    output.set(normName(medicineName, type).toLowerCase(), row[valueIndex]);
-  }
-  return output;
+const oldSource = await readFile(outPath, "utf8").catch(() => "");
+const previousMinimumByName = new Map();
+const previousRowPattern = /^\s*\{ name: ("(?:[^"\\]|\\.)*"), itemType: ("(?:[^"\\]|\\.)*"), minimumStock: (null|\d+), currentQuantity:/gm;
+for (const match of oldSource.matchAll(previousRowPattern)) {
+  const name = JSON.parse(match[1]);
+  const minimum = match[3] === "null" ? null : Number(match[3]);
+  previousMinimumByName.set(normalizeKey(name), minimum);
 }
 
-const [masterHeader, ...masterRows] = sheetRows("Medicine Master");
-const nameIndex = headerIndex(masterHeader, "Medicine / Item Name");
-const typeIndex = headerIndex(masterHeader, "Type");
-const minimumIndex = headerIndex(masterHeader, "Minimum Stock");
-const expiryByName = keyedRows("Stock In", "Medicine Name", "Type", "Expiry Date");
-const quantityByName = keyedRows("Current Stock", "Medicine Name", "Type", "Current Balance");
 const seen = new Set();
-const rows = [];
-
-for (const row of masterRows) {
+const medicines = [];
+for (let index = 0; index < rows.length; index += 1) {
+  const row = rows[index];
   if (!row[nameIndex]) continue;
-  const itemType = normType(row[typeIndex]);
-  const name = normName(row[nameIndex], itemType);
-  const key = name.toLowerCase();
+  const itemType = normalizeType(row[typeIndex], row[nameIndex]);
+  const name = normalizeName(row[nameIndex], itemType);
+  const key = normalizeKey(name);
   if (seen.has(key)) continue;
   seen.add(key);
-  const minimumValue = row[minimumIndex];
-  const minimum = minimumValue === null || minimumValue === "" ? Number.NaN : Number(minimumValue);
-  const quantityValue = quantityByName.get(key);
-  const quantity = quantityValue === null || quantityValue === undefined || quantityValue === "" ? Number.NaN : Number(quantityValue);
-  rows.push({
+  medicines.push({
     name,
     itemType,
-    minimumStock: Number.isFinite(minimum) ? Math.max(0, Math.floor(minimum)) : null,
-    currentQuantity: Number.isFinite(quantity) ? Math.max(0, Math.floor(quantity)) : null,
-    expiryDate: dateValue(expiryByName.get(key)),
+    minimumStock: previousMinimumByName.get(key) ?? null,
+    currentQuantity: quantityValue(row[b1QuantityIndex], row[b2QuantityIndex]),
+    expiryDate: expiryValue(row[expiryIndex], index + 2),
   });
 }
+if (medicines.length === 0) throw new Error("No medicine rows were found in the workbook.");
 
-const body = rows.map((row) =>
-  `  { name: ${JSON.stringify(row.name)}, itemType: ${JSON.stringify(row.itemType)}, minimumStock: ${row.minimumStock ?? "null"}, currentQuantity: ${row.currentQuantity}, expiryDate: ${JSON.stringify(row.expiryDate)} },`,
+const body = medicines.map((item) =>
+  "  { name: " + JSON.stringify(item.name) +
+  ", itemType: " + JSON.stringify(item.itemType) +
+  ", minimumStock: " + (item.minimumStock ?? "null") +
+  ", currentQuantity: " + (item.currentQuantity ?? "null") +
+  ", expiryDate: " + JSON.stringify(item.expiryDate) + " },",
 ).join("\n");
-const dateCount = rows.filter((row) => row.expiryDate).length;
-const out = `/**
- * THS Medical Center inventory catalog imported from its shared Google workbook.
- * Source: https://docs.google.com/spreadsheets/d/1lTdoDTwg7DhF6VHFY_KBHFPHqxjz2OO9/edit
- * Master items: ${rows.length} · expiry dates supplied: ${dateCount}
- */
-export type ThsSheetMedicineRow = {
-  name: string;
-  itemType: string;
-  minimumStock: number | null;
-  currentQuantity: number | null;
-  expiryDate: string;
-};
-
-export const THS_SHEET_MEDICINES: ThsSheetMedicineRow[] = [
-${body}
-];
-`;
-
-await writeFile(outPath, out, "utf8");
-console.log(`Wrote ${rows.length} unique medicines (${dateCount} with expiry dates) to ${outPath}`);
+const expiryCount = medicines.filter((item) => item.expiryDate).length;
+const output = [
+  "/**",
+  " * THS Medical Center inventory imported from Medicine_Inventory.xlsx.",
+  " * Quantity mode: " + quantityMode + " · medicines: " + medicines.length + " · expiry dates: " + expiryCount,
+  " */",
+  "export type ThsSheetMedicineRow = {",
+  "  name: string;",
+  "  itemType: string;",
+  "  minimumStock: number | null;",
+  "  currentQuantity: number | null;",
+  "  expiryDate: string;",
+  "};",
+  "",
+  "export const THS_SHEET_SOURCE_VERSION = " + JSON.stringify(sourceVersion) + ";",
+  "",
+  "export const THS_SHEET_MEDICINES: ThsSheetMedicineRow[] = [",
+  body,
+  "];",
+  "",
+].join("\n");
+await writeFile(outPath, output, "utf8");
+console.log("Wrote " + medicines.length + " medicines (" + expiryCount + " expiry dates, " + quantityMode + " quantities) to " + outPath);
+console.log("Source version: " + sourceVersion);
