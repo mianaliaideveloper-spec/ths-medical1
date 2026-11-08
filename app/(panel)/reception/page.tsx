@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { Card, EmptyState, Field, Notice, PageHeader, fieldClass } from "@/components/shell";
 import { useStore } from "@/components/store";
 import { dateInPakistan, formatDateTime, todayIso } from "@/lib/format";
@@ -27,14 +28,13 @@ function statusLabel(visit: ReceptionVisit) {
 }
 
 export default function ReceptionPage() {
-  const { receptionVisits, registerReceptionVisit, markReceptionMedicineIssued } = useStore();
+  const { receptionVisits, registerReceptionVisit } = useStore();
   const [form, setForm] = useState(blank);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [issuingId, setIssuingId] = useState("");
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(SAVED_VISIT_PAGE_SIZE);
   const [patientSearch, setPatientSearch] = useState("");
-  const [searchedPatientNumber, setSearchedPatientNumber] = useState("");
+  const [searchedPatientQuery, setSearchedPatientQuery] = useState("");
   const [printVisit, setPrintVisit] = useState<ReceptionVisit | null>(null);
 
   const today = todayIso();
@@ -43,14 +43,17 @@ export default function ReceptionPage() {
     [receptionVisits, today],
   );
   const visibleHistory = receptionVisits.slice(0, visibleHistoryCount);
-  const searchKey = searchedPatientNumber.trim().toLowerCase();
+  const searchKey = searchedPatientQuery.trim().toLowerCase();
+  const searchDigits = searchKey.replace(/\D/g, "");
   const searchResults = useMemo(
     () => searchKey
-      ? receptionVisits.filter((visit) =>
-          (visit.patientNumber || visit.patientId || "").trim().toLowerCase() === searchKey,
-        )
+      ? receptionVisits.filter((visit) => {
+          const id = (visit.patientNumber || visit.patientId || "").trim().toLowerCase();
+          const phone = (visit.phone || "").replace(/\D/g, "");
+          return id.includes(searchKey) || (searchDigits.length >= 4 && phone.includes(searchDigits));
+        })
       : [],
-    [receptionVisits, searchKey],
+    [receptionVisits, searchDigits, searchKey],
   );
 
   const phoneDigits = form.phone.replace(/\D/g, "");
@@ -87,6 +90,9 @@ export default function ReceptionPage() {
           ? receptionVisits.find((visit) => (visit.phone || "").replace(/\D/g, "") === digits)
           : undefined;
         if (previous) {
+          const currentName = current.patientName.trim().replace(/\s+/g, " ").toLowerCase();
+          const previousName = previous.patientName.trim().replace(/\s+/g, " ").toLowerCase();
+          if (currentName && currentName !== previousName) return next;
           return {
             ...next,
             patientNumber: previous.patientNumber || next.patientNumber,
@@ -107,26 +113,12 @@ export default function ReceptionPage() {
       phone: visit.phone || "",
     });
     setError("");
-    setSearchedPatientNumber(visit.patientNumber || "");
+    setSearchedPatientQuery(visit.patientNumber || visit.phone || "");
   }
 
   function printTokenSlip(visit: ReceptionVisit) {
     setPrintVisit(visit);
     window.setTimeout(() => window.print(), 250);
-  }
-
-  async function issueMedicines(id: string) {
-    const visit = receptionVisits.find((item) => item.id === id);
-    if (!visit?.prescription?.length) return;
-    setError("");
-    setIssuingId(id);
-    try {
-      await markReceptionMedicineIssued(id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not confirm medicine issue.");
-    } finally {
-      setIssuingId("");
-    }
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -155,36 +147,35 @@ export default function ReceptionPage() {
 
   function searchPatient(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSearchedPatientNumber(patientSearch.trim());
+    setSearchedPatientQuery(patientSearch.trim());
   }
 
   return (
     <div>
       <PageHeader
         title="Patient Register"
-        description="Assign a patient ID, register the visit, and send the token to the doctor."
+        description="Register the patient. The THS patient ID and daily token are assigned automatically."
       />
 
       <Card className="mb-4 p-5">
         <h2 className="font-semibold text-ths-dark">Search previous patient</h2>
-        <p className="mt-1 text-sm text-muted">Enter the patient ID to see earlier visits and register a return visit.</p>
+        <p className="mt-1 text-sm text-muted">Search by patient ID or phone number to see earlier visits and register a return visit.</p>
         <form onSubmit={searchPatient} className="mt-3 flex flex-col gap-2 sm:flex-row">
           <input
             className={fieldClass + " sm:max-w-sm"}
-            inputMode="numeric"
             value={patientSearch}
             onChange={(event) => setPatientSearch(event.target.value)}
-            placeholder="Patient ID number"
-            aria-label="Search patient by ID"
+            placeholder="THS-001 or phone number"
+            aria-label="Search patient by ID or phone"
           />
           <button type="submit" className="rounded-lg bg-clinic px-5 py-2.5 text-sm font-semibold text-white hover:bg-clinic-dark">
             Search
           </button>
         </form>
-        {searchedPatientNumber && (
+        {searchedPatientQuery && (
           <div className="mt-4">
             {searchResults.length === 0 ? (
-              <p className="text-sm text-muted">No saved patient found with ID {searchedPatientNumber}.</p>
+              <p className="text-sm text-muted">No saved patient found for {searchedPatientQuery}.</p>
             ) : (
               <div className="space-y-2">
                 <p className="text-sm font-medium text-ths-dark">{searchResults[0].patientName} · Patient ID {patientDisplayId(searchResults[0])} · {searchResults.length} saved visit(s)</p>
@@ -221,17 +212,12 @@ export default function ReceptionPage() {
         <Card className="p-5">
           <h2 className="font-semibold text-ths-dark">Register visit</h2>
           <form onSubmit={onSubmit} className="mt-4 space-y-3">
-            <Field label="Patient ID (assigned by reception)">
-              <input
-                className={fieldClass}
-                value={form.patientNumber}
-                onChange={(event) => setFormField("patientNumber", event.target.value)}
-                inputMode="numeric"
-                maxLength={20}
-                placeholder="e.g. 1, 2, 3"
-                required
-              />
-            </Field>
+            {form.patientNumber && (
+              <div className="flex items-center justify-between gap-3 rounded-lg bg-ths-soft px-3 py-2 text-sm">
+                <span className="font-medium text-ths-dark">Returning patient · ID {form.patientNumber}</span>
+                <button type="button" className="text-xs font-semibold text-clinic" onClick={() => setForm((current) => ({ ...current, patientNumber: "" }))}>Clear ID</button>
+              </div>
+            )}
             <Field label="Patient name">
               <input className={fieldClass} value={form.patientName} onChange={(event) => setFormField("patientName", event.target.value)} required />
             </Field>
@@ -290,7 +276,6 @@ export default function ReceptionPage() {
                     <th>Age</th>
                     <th>Next visit</th>
                     <th>Status</th>
-                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -306,13 +291,6 @@ export default function ReceptionPage() {
                       <td>{item.age}</td>
                       <td className="text-xs">{item.followUpDays ? item.followUpDays + " day(s)" : "—"}{item.followUpDate ? <span className="block text-muted">{formatDateTime(item.followUpDate)}</span> : null}</td>
                       <td><span className="text-xs font-medium text-ths">{statusLabel(item)}</span></td>
-                      <td>
-                        {item.status === "waiting_reception" && (
-                          <button type="button" disabled={issuingId === item.id} className="text-sm font-semibold text-ths" onClick={() => void issueMedicines(item.id)}>
-                            {issuingId === item.id ? "Saving…" : "Save & issue medicines"}
-                          </button>
-                        )}
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -336,9 +314,9 @@ export default function ReceptionPage() {
                     </ul>
                     {visit.doctorNote && <p className="mt-1 text-muted">Doctor: {visit.doctorNote}</p>}
                     {visit.followUpDays ? <p className="mt-1 font-medium text-clinic">Tell the patient to return after {visit.followUpDays} day(s){visit.followUpDate ? " · " + formatDateTime(visit.followUpDate) : ""}.</p> : null}
-                    <button type="button" disabled={issuingId === visit.id} className="mt-2 rounded-lg bg-ths px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60" onClick={() => void issueMedicines(visit.id)}>
-                      {issuingId === visit.id ? "Saving…" : "Save & issue medicines"}
-                    </button>
+                    <Link href="/medicine-issue" className="mt-2 inline-flex rounded-lg bg-ths px-3 py-1.5 text-xs font-semibold text-white">
+                      Open Medicine Issue
+                    </Link>
                   </div>
                 ))}
               </div>

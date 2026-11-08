@@ -1,15 +1,22 @@
-/** Main desk navigation (matches clinic spreadsheet tabs). */
+/** Main desk navigation. Stock entry pages stay grouped under Stock Status. */
 export const mainNavLinks = [
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/medicines", label: "Medicine Master" },
-  { href: "/stock-in", label: "Stock In" },
-  { href: "/reception", label: "Patient Register" },
-  { href: "/school-students", label: "School Student Register" },
-  { href: "/doctor", label: "Doctor Prescriptions" },
-  { href: "/clinic-list", label: "Sheet1" },
-  { href: "/current-stock", label: "Current Stock" },
+  { href: "/reception", label: "Reception" },
+  { href: "/medicine-issue", label: "Medicine Issue" },
+  { href: "/school-students", label: "THS Student" },
+  { href: "/doctor", label: "Doctor" },
+  {
+    href: "/current-stock",
+    label: "Stock Status",
+    children: [
+      { href: "/current-stock", label: "Current Stock" },
+      { href: "/stock-in", label: "Stock In" },
+      { href: "/medicines", label: "Medicine Master" },
+    ],
+  },
   { href: "/low-stock-report", label: "Low Stock Report" },
   { href: "/expiry-report", label: "Expiry Report" },
+  { href: "/clinic-list", label: "Clinic List" },
 ] as const;
 
 export const deskNavLinks = [

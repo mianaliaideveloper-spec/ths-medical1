@@ -7,7 +7,7 @@ import { isLocalAdmin } from "@/lib/desk";
 import { formatDateTime } from "@/lib/format";
 import type { SchoolStudent } from "@/lib/types";
 
-const blank = { studentName: "", schoolName: "", className: "", phone: "" };
+const blank = { studentName: "", schoolName: "THS", className: "", phone: "" };
 
 export default function SchoolStudentsPage() {
   const { schoolStudents, registerSchoolStudent, user } = useStore();
@@ -22,7 +22,7 @@ export default function SchoolStudentsPage() {
     const query = search.trim().toLowerCase();
     if (!query) return schoolStudents;
     return schoolStudents.filter((student) =>
-      [student.studentName, student.schoolName, student.className, student.phone]
+      [student.studentNumber || "", student.studentName, student.schoolName, student.className, student.phone]
         .some((value) => value.toLowerCase().includes(query)),
     );
   }, [schoolStudents, search]);
@@ -48,26 +48,31 @@ export default function SchoolStudentsPage() {
   }
 
   return <div>
-    <PageHeader title="School Student Register" description="School students are registered free of cost." />
+    <PageHeader title="THS Student Register" description="Register THS, IPS, and APEX school students free of cost." />
     <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
       <Card className="p-5">
         <h2 className="font-semibold text-ths-dark">Register a student</h2>
         <p className="mt-1 text-sm font-medium text-clinic">Free of cost</p>
+        <p className="mt-1 text-xs text-muted">Student ID is assigned automatically, starting at 001.</p>
         <form onSubmit={onSubmit} className="mt-4 space-y-3">
           <Field label="Student name">
             <input className={fieldClass} value={form.studentName} onChange={(event) => set("studentName", event.target.value)} required />
           </Field>
-          <Field label="School name">
-            <input className={fieldClass} value={form.schoolName} onChange={(event) => set("schoolName", event.target.value)} required />
+          <Field label="School / section">
+            <select className={fieldClass} value={form.schoolName} onChange={(event) => set("schoolName", event.target.value)} required>
+              <option value="THS">THS</option>
+              <option value="IPS">IPS</option>
+              <option value="APEX">APEX</option>
+            </select>
           </Field>
-          <Field label="Class / grade">
-            <input className={fieldClass} value={form.className} onChange={(event) => set("className", event.target.value)} placeholder="e.g. Class 5" required />
+          <Field label="Grade">
+            <input className={fieldClass} value={form.className} onChange={(event) => set("className", event.target.value)} placeholder="e.g. Grade 5" required />
           </Field>
           <Field label="Phone number">
             <input className={fieldClass} type="tel" value={form.phone} onChange={(event) => set("phone", event.target.value)} required />
           </Field>
           {error && <Notice>{error}</Notice>}
-          {savedStudent && <p className="rounded-lg bg-ths-soft p-3 text-sm font-semibold text-ths-dark">Student saved in Firebase · Free of cost</p>}
+          {savedStudent && <p className="rounded-lg bg-ths-soft p-3 text-sm font-semibold text-ths-dark">Student ID {savedStudent.studentNumber || savedStudent.id} saved in Firebase · Free of cost</p>}
           <button type="submit" disabled={busy || firebaseUnavailable} className="w-full rounded-lg bg-ths px-4 py-2.5 text-sm font-semibold text-white hover:bg-ths-dark disabled:opacity-60">
             {busy ? "Saving…" : "Save student"}
           </button>
@@ -78,17 +83,18 @@ export default function SchoolStudentsPage() {
         <div className="flex flex-col gap-3 border-b border-line px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="font-semibold text-ths-dark">Registered students</h2>
-            <p className="text-sm text-muted">{schoolStudents.length} student(s) · Free of cost</p>
+            <p className="text-sm text-muted">{schoolStudents.length} student(s) · IDs start at 001 · Free of cost</p>
           </div>
-          <input className={`${fieldClass} sm:max-w-xs`} aria-label="Search students" placeholder="Search name, school or phone" value={search} onChange={(event) => setSearch(event.target.value)} />
+          <input className={`${fieldClass} sm:max-w-xs`} aria-label="Search students" placeholder="Search ID, name, school or phone" value={search} onChange={(event) => setSearch(event.target.value)} />
         </div>
         {filteredStudents.length === 0 ? (
           <EmptyState title={schoolStudents.length ? "No matching students" : "No students registered yet"} body={schoolStudents.length ? "Try a different name, school, or phone number." : "Firebase-registered students will appear here."} />
         ) : (
           <div className="table-wrap">
             <table className="data">
-              <thead><tr><th>Student name</th><th>School</th><th>Class</th><th>Phone number</th><th>Fee</th><th>Registered</th></tr></thead>
+              <thead><tr><th>Student ID</th><th>Student name</th><th>School / section</th><th>Grade</th><th>Phone number</th><th>Fee</th><th>Registered</th></tr></thead>
               <tbody>{filteredStudents.map((student) => <tr key={student.id}>
+                <td className="font-mono text-xs">{student.studentNumber || "—"}</td>
                 <td className="font-medium">{student.studentName}</td>
                 <td>{student.schoolName}</td>
                 <td>{student.className}</td>

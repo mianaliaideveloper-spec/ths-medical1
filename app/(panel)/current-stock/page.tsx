@@ -22,7 +22,7 @@ export default function CurrentStockPage() {
   return (
     <div>
       <PageHeader
-        title="Current Stock"
+        title="Stock Status"
         description={`${summary.availableSkus} items in stock · ${summary.availableUnits} total units on hand.`}
       />
       <Card className="mb-4 p-4">

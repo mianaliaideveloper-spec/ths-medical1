@@ -12,6 +12,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { logout } = useStore();
   const [open, setOpen] = useState(false);
+  const [stockMenuOpen, setStockMenuOpen] = useState(false);
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[260px_1fr]">
@@ -43,7 +44,48 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </Link>
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-4">
           {panelNavLinks.map((link) => {
-            const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
+            const active = pathname === link.href || pathname.startsWith(link.href + "/");
+            if ("children" in link) {
+              const groupActive = link.children.some(
+                (child) => pathname === child.href || pathname.startsWith(child.href + "/"),
+              );
+              return (
+                <div key={link.href}>
+                  <button
+                    type="button"
+                    aria-expanded={stockMenuOpen || groupActive}
+                    onClick={() => setStockMenuOpen((current) => !current)}
+                    className={"flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm " + (groupActive ? "bg-white text-ths-dark font-semibold" : "text-white/90 hover:bg-white/10")}
+                  >
+                    <span>{link.label}</span>
+                    <span aria-hidden="true">{stockMenuOpen || groupActive ? "−" : "+"}</span>
+                  </button>
+                  {(stockMenuOpen || groupActive) && (
+                    <div className="ml-3 mt-1 space-y-1 border-l border-white/20 pl-2">
+                      {link.children.map((child) => {
+                        const childActive = pathname === child.href || pathname.startsWith(child.href + "/");
+                        return (
+                          <Link
+                            key={child.href}
+                            href={child.href}
+                            prefetch={false}
+                            onMouseEnter={() => router.prefetch(child.href)}
+                            onFocus={() => router.prefetch(child.href)}
+                            onClick={() => {
+                              setOpen(false);
+                              setStockMenuOpen(true);
+                            }}
+                            className={"block rounded-lg px-3 py-2 text-sm " + (childActive ? "bg-white/90 font-semibold text-ths-dark" : "text-white/85 hover:bg-white/10")}
+                          >
+                            {child.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
             return (
               <Link
                 key={link.href}
@@ -52,9 +94,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 onMouseEnter={() => router.prefetch(link.href)}
                 onFocus={() => router.prefetch(link.href)}
                 onClick={() => setOpen(false)}
-                className={`block rounded-lg px-3 py-2.5 text-sm ${
-                  active ? "bg-white text-ths-dark font-semibold" : "text-white/90 hover:bg-white/10"
-                }`}
+                className={"block rounded-lg px-3 py-2.5 text-sm " + (active ? "bg-white text-ths-dark font-semibold" : "text-white/90 hover:bg-white/10")}
               >
                 {link.label}
               </Link>

@@ -90,7 +90,7 @@ export type ReceptionVisit = {
 };
 
 export type ReceptionVisitInput = {
-  patientNumber: string;
+  patientNumber?: string;
   patientName: string;
   cnic: string;
   age: number;
@@ -100,6 +100,7 @@ export type ReceptionVisitInput = {
 
 export type SchoolStudent = {
   id: string;
+  studentNumber?: string;
   studentName: string;
   schoolName: string;
   className: string;
@@ -109,7 +110,7 @@ export type SchoolStudent = {
   createdBy: string;
 };
 
-export type SchoolStudentInput = Omit<SchoolStudent, "id" | "fee" | "createdAt" | "createdBy">;
+export type SchoolStudentInput = Omit<SchoolStudent, "id" | "studentNumber" | "fee" | "createdAt" | "createdBy">;
 
 export type StockType = "in" | "out" | "adjustment";
 
