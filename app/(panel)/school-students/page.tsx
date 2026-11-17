@@ -71,8 +71,8 @@ export default function SchoolStudentsPage() {
           <Field label="Grade">
             <input className={fieldClass} value={form.className} onChange={(event) => set("className", event.target.value)} placeholder="e.g. Grade 5" required />
           </Field>
-          <Field label="Phone number">
-            <input className={fieldClass} type="tel" value={form.phone} onChange={(event) => set("phone", event.target.value)} required />
+          <Field label="Phone number (optional)">
+            <input className={fieldClass} type="tel" value={form.phone} onChange={(event) => set("phone", event.target.value)} />
           </Field>
           {error && <Notice>{error}</Notice>}
           {savedStudent && <p className="rounded-lg bg-ths-soft p-3 text-sm font-semibold text-ths-dark">Student ID {savedStudent.studentNumber || savedStudent.id} saved in Firebase · Free of cost</p>}

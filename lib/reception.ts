@@ -1,8 +1,8 @@
 import { dateInPakistan, todayIso } from "@/lib/format";
 import type { ReceptionVisit } from "@/lib/types";
 
-/** Reception doctor slip has no charge. */
-export const RECEPTION_SLIP_FEE_PKR = 0;
+/** Standard outpatient consultation fee charged at reception. */
+export const RECEPTION_SLIP_FEE_PKR = 50;
 
 function visitsOnDay(visits: ReceptionVisit[], day: string) {
   return visits.filter((item) => dateInPakistan(item.createdAt) === day);

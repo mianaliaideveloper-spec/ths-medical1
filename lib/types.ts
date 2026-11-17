@@ -6,9 +6,12 @@ export type Category = {
 
 export type Supplier = {
   id: string;
+  supplierCode?: string;
   name: string;
+  companyName?: string;
   contactPerson: string;
   phone: string;
+  whatsappNumber?: string;
   email: string;
   address: string;
   city: string;
@@ -51,12 +54,26 @@ export type Medicine = {
 
 export type ReceptionVisitStatus = "waiting_doctor" | "waiting_reception" | "medicine_issued";
 
+export type MedicationScheduleTime = "morning" | "afternoon" | "evening" | "night";
+
+export type StudentMedicineIssueLine = {
+  medicineId: string;
+  quantity: number;
+  dosage: string;
+  schedule: MedicationScheduleTime[];
+  durationDays?: number;
+};
+
 export type PrescribedMedicine = {
   medicineId: string;
   medicineName: string;
+  /** Total units dispensed; calculated from dose × times per day × days. */
   quantity: number;
   dosage: string;
   instructions: string;
+  dosePerIntake?: number;
+  schedule?: MedicationScheduleTime[];
+  durationDays?: number;
 };
 
 
@@ -113,12 +130,13 @@ export type SchoolStudent = {
 export type SchoolStudentInput = Omit<SchoolStudent, "id" | "fee" | "createdAt" | "createdBy"> & { studentNumber: string };
 
 export type StockType = "in" | "out" | "adjustment";
+export type StockMovementType = StockType | "supplier_payment";
 
 export type StockMovement = {
   id: string;
   medicineId: string;
   medicineName: string;
-  type: StockType;
+  type: StockMovementType;
   quantity: number;
   balanceAfter: number;
   note: string;
@@ -131,6 +149,47 @@ export type StockMovement = {
   schoolStudentName?: string;
   schoolName?: string;
   className?: string;
+  dosage?: string;
+  schedule?: MedicationScheduleTime[];
+  durationDays?: number;
+  issueDate?: string;
+  supplierId?: string;
+  supplierName?: string;
+  invoiceNumber?: string;
+  purchaseDate?: string;
+  purchaseGroupId?: string;
+  batchNumber?: string;
+  purchasePrice?: number;
+  salePrice?: number;
+  expiryDate?: string;
+  purchaseAmount?: number;
+  paymentAmount?: number;
+  paymentStatus?: "paid" | "partial" | "unpaid";
+  saleAmount?: number;
+};
+
+export type StockPurchaseLineInput = {
+  medicineId: string;
+  batchNumber: string;
+  quantity: number;
+  purchasePrice: number;
+  salePrice: number;
+  expiryDate: string;
+};
+
+export type StockPurchaseInput = {
+  supplierId: string;
+  invoiceNumber: string;
+  purchaseDate: string;
+  line: StockPurchaseLineInput;
+  amountPaid: number;
+};
+
+export type SupplierPaymentInput = {
+  supplierId: string;
+  invoiceNumber: string;
+  amount: number;
+  note?: string;
 };
 
 /** Rentable items (wheelchair, nebulizer, etc.) — stock minus on customer bill. */

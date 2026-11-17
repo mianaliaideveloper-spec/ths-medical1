@@ -1,178 +1,115 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Card, EmptyState, Field, Notice, PageHeader, fieldClass } from "@/components/shell";
 import { useStore } from "@/components/store";
-import { isExpired, isLowStock, isOutOfStock, stockQuantity } from "@/lib/format";
-import type { Medicine, Supplier } from "@/lib/types";
+import { formatDate, formatDateTime, formatPkr, isExpired, isLowStock, isOutOfStock, stockQuantity } from "@/lib/format";
+import type { Supplier } from "@/lib/types";
 
-function supplierLowStock(supplierId: string, medicines: Medicine[]) {
-  return medicines.filter(
-    (item) =>
-      item.supplierId === supplierId &&
-      !isExpired(item) &&
-      (isLowStock(item) || isOutOfStock(item)),
-  );
-}
-
-const blank: Omit<Supplier, "id"> = {
-  name: "",
-  contactPerson: "",
-  phone: "",
-  email: "",
-  address: "",
-  city: "",
-};
+type SupplierForm = Omit<Supplier, "id" | "supplierCode">;
+const blank: SupplierForm = { name: "", companyName: "", contactPerson: "", phone: "", whatsappNumber: "", email: "", address: "", city: "" };
 
 export default function SuppliersPage() {
-  const { suppliers, medicines, saveSupplier, deleteSupplier } = useStore();
-  const lowBySupplier = suppliers
-    .map((supplier) => ({
-      supplier,
-      items: supplierLowStock(supplier.id, medicines).sort((a, b) => stockQuantity(a) - stockQuantity(b)),
-    }))
-    .filter((row) => row.items.length > 0);
-  const [form, setForm] = useState(blank);
+  const { suppliers, medicines, movements, saveSupplier, deleteSupplier } = useStore();
+  const [form, setForm] = useState<SupplierForm>(blank);
   const [editing, setEditing] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  function set(key: keyof typeof blank, value: string) {
-    setForm((current) => ({ ...current, [key]: value }));
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return suppliers;
+    return suppliers.filter((supplier) => `${supplier.name} ${supplier.companyName || ""} ${supplier.phone} ${supplier.whatsappNumber || ""} ${supplier.email}`.toLowerCase().includes(needle));
+  }, [search, suppliers]);
+
+  function stats(supplierId: string) {
+    const purchases = movements.filter((item) => item.type === "in" && item.supplierId === supplierId && item.purchaseAmount !== undefined);
+    const payments = movements.filter((item) => item.type === "supplier_payment" && item.supplierId === supplierId);
+    const purchased = purchases.reduce((sum, item) => sum + (Number(item.purchaseAmount) || 0), 0);
+    const paid = payments.reduce((sum, item) => sum + (Number(item.paymentAmount) || 0), 0);
+    return { purchases, payments, purchased, paid, due: Math.max(0, purchased - paid) };
   }
 
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    setError("");
+  function set(key: keyof SupplierForm, value: string) { setForm((current) => ({ ...current, [key]: value })); }
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setError(""); setSuccess(""); setBusy(true);
     try {
       await saveSupplier({
-        name: form.name.trim(),
-        contactPerson: form.contactPerson.trim(),
-        phone: form.phone.trim(),
-        email: form.email.trim(),
-        address: form.address.trim(),
-        city: form.city.trim(),
+        name: form.name.trim(), companyName: form.companyName?.trim() || "", contactPerson: form.contactPerson.trim(),
+        phone: form.phone.trim(), whatsappNumber: form.whatsappNumber?.trim() || "", email: form.email.trim(),
+        address: form.address.trim(), city: form.city.trim(),
       }, editing || undefined);
-      setForm(blank);
-      setEditing(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save the supplier.");
-    }
+      setSuccess(editing ? "Supplier details updated in Firestore." : "Supplier saved in Firestore.");
+      setForm(blank); setEditing(null);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save supplier details."); }
+    finally { setBusy(false); }
+  }
+
+  function editSupplier(item: Supplier) {
+    setEditing(item.id);
+    setForm({ name: item.name, companyName: item.companyName || "", contactPerson: item.contactPerson || "", phone: item.phone || "", whatsappNumber: item.whatsappNumber || "", email: item.email || "", address: item.address || "", city: item.city || "" });
+    setError(""); setSuccess("");
+  }
+
+  async function removeSupplier(item: Supplier) {
+    if (!window.confirm(`Delete supplier ${item.name}? Supplier purchase history is kept and prevents deletion.`)) return;
+    setError(""); setSuccess("");
+    try { await deleteSupplier(item.id); setSuccess("Supplier deleted."); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not delete supplier."); }
   }
 
   return (
     <div>
-      <PageHeader
-        title="Suppliers"
-        description="Supplier contacts and medicines below their set minimum stock level."
-      />
-      <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
+      <PageHeader title="Supplier Management" description="Manage supplier contacts, supplied medicines, invoice history, payments and outstanding balances." action={<Link href="/stock-in" className="rounded-lg bg-ths px-4 py-2.5 text-sm font-semibold text-white">Record Stock In</Link>} />
+      {error && <div className="mb-4"><Notice>{error}</Notice></div>}
+      {success && <Card className="mb-4 border border-clinic/20 bg-clinic-soft/50 p-4 text-sm font-medium text-ths-dark">{success}</Card>}
+      <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
         <Card className="p-5">
-          <h2 className="font-semibold text-ths-dark">{editing ? "Edit supplier" : "Add supplier"}</h2>
-          <form onSubmit={onSubmit} className="mt-4 space-y-3">
-            <Field label="Company"><input className={fieldClass} value={form.name} onChange={(e) => set("name", e.target.value)} required /></Field>
-            <Field label="Contact person"><input className={fieldClass} value={form.contactPerson} onChange={(e) => set("contactPerson", e.target.value)} required /></Field>
-            <Field label="Phone"><input className={fieldClass} value={form.phone} onChange={(e) => set("phone", e.target.value)} required /></Field>
-            <Field label="Email (optional)"><input className={fieldClass} type="email" value={form.email} onChange={(e) => set("email", e.target.value)} /></Field>
-            <Field label="Address (optional)"><input className={fieldClass} value={form.address} onChange={(e) => set("address", e.target.value)} /></Field>
-            <Field label="City"><input className={fieldClass} value={form.city} onChange={(e) => set("city", e.target.value)} required /></Field>
-            {error && <Notice>{error}</Notice>}
-            <button className="rounded-lg bg-clinic px-4 py-2.5 text-sm font-semibold text-white">Save supplier</button>
+          <h2 className="font-semibold text-ths-dark">{editing ? "Edit supplier" : "Add new supplier"}</h2>
+          <form onSubmit={(event) => void onSubmit(event)} className="mt-4 space-y-3">
+            <Field label="Supplier name"><input className={fieldClass} value={form.name} onChange={(event) => set("name", event.target.value)} required /></Field>
+            <Field label="Company name"><input className={fieldClass} value={form.companyName || ""} onChange={(event) => set("companyName", event.target.value)} /></Field>
+            <Field label="Contact person (optional)"><input className={fieldClass} value={form.contactPerson} onChange={(event) => set("contactPerson", event.target.value)} /></Field>
+            <Field label="Mobile number"><input className={fieldClass} type="tel" value={form.phone} onChange={(event) => set("phone", event.target.value)} required /></Field>
+            <Field label="WhatsApp number (optional)"><input className={fieldClass} type="tel" value={form.whatsappNumber || ""} onChange={(event) => set("whatsappNumber", event.target.value)} /></Field>
+            <Field label="Email (optional)"><input className={fieldClass} type="email" value={form.email} onChange={(event) => set("email", event.target.value)} /></Field>
+            <Field label="Address"><textarea className={fieldClass + " min-h-20"} value={form.address} onChange={(event) => set("address", event.target.value)} /></Field>
+            <Field label="City / area"><input className={fieldClass} value={form.city} onChange={(event) => set("city", event.target.value)} /></Field>
+            <div className="flex flex-wrap gap-2"><button type="submit" disabled={busy} className="rounded-lg bg-clinic px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{busy ? "Saving…" : editing ? "Save changes" : "Add supplier"}</button>{editing && <button type="button" className="rounded-lg border border-line px-4 py-2.5 text-sm" onClick={() => { setEditing(null); setForm(blank); }}>Cancel</button>}</div>
           </form>
         </Card>
-        <Card>
-          {suppliers.length === 0 ? (
-            <EmptyState title="No suppliers yet" body="Add a supplier, then link it to medicines when you record stock." />
-          ) : (
-            <div className="table-wrap">
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>Supplier</th>
-                    <th>Contact</th>
-                    <th>Phone</th>
-                    <th>City</th>
-                    <th>Items</th>
-                    <th>Low stock</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {suppliers.map((item) => {
-                    const linked = medicines.filter((medicine) => medicine.supplierId === item.id);
-                    const lowItems = supplierLowStock(item.id, medicines);
-                    return (
-                      <tr key={item.id}>
-                        <td>
-                          <p className="font-medium">{item.name}</p>
-                          <p className="text-xs text-muted">{item.email}</p>
-                        </td>
-                        <td>{item.contactPerson}</td>
-                        <td>{item.phone}</td>
-                        <td>{item.city}</td>
-                        <td>{linked.length}</td>
-                        <td>
-                          {lowItems.length === 0 ? (
-                            <span className="text-xs text-muted">—</span>
-                          ) : (
-                            <span className="inline-flex items-center gap-2">
-                              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-warning">
-                                {lowItems.length}
-                              </span>
-                              <span className="text-xs text-muted">under minimum</span>
-                            </span>
-                          )}
-                        </td>
-                        <td className="space-x-3 text-sm">
-                          <button className="text-clinic" onClick={() => { setEditing(item.id); setForm(item); }}>Edit</button>
-                          <button className="text-danger" onClick={async () => {
-                            setError("");
-                            try { await deleteSupplier(item.id); } catch (err) { setError(err instanceof Error ? err.message : "Could not delete."); }
-                          }}>Delete</button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
+
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-3"><Card className="p-4"><p className="text-xs text-muted">Total suppliers</p><p className="mt-1 text-2xl font-semibold">{suppliers.length}</p></Card><Card className="p-4"><p className="text-xs text-muted">All supplier purchases</p><p className="mt-1 text-2xl font-semibold">{formatPkr(suppliers.reduce((sum, item) => sum + stats(item.id).purchased, 0))}</p></Card><Card className="p-4"><p className="text-xs text-muted">Outstanding payments</p><p className="mt-1 text-2xl font-semibold text-warning">{formatPkr(suppliers.reduce((sum, item) => sum + stats(item.id).due, 0))}</p></Card></div>
+          <Card className="overflow-hidden">
+            <div className="border-b border-line p-4"><input className={fieldClass} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by supplier, company, mobile or WhatsApp" aria-label="Search suppliers" /></div>
+            {filtered.length === 0 ? <EmptyState title="No suppliers found" body={suppliers.length ? "Try another search." : "Add the suppliers you purchase medicines from."} /> : <div className="divide-y divide-line">
+              {filtered.map((supplier) => {
+                const ledger = stats(supplier.id);
+                const linked = medicines.filter((medicine) => medicine.supplierId === supplier.id);
+                const expandedRow = expanded === supplier.id;
+                return <article key={supplier.id} className="p-4 sm:p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div><h3 className="font-semibold text-ths-dark">{supplier.name}{supplier.companyName ? <span className="font-normal text-muted"> · {supplier.companyName}</span> : null}</h3><p className="mt-1 text-xs text-muted">Supplier ID: {supplier.supplierCode || `SUP-${supplier.id.slice(-6).toUpperCase()}`} · {supplier.contactPerson || "No contact person"}</p><p className="mt-1 text-sm">Mobile {supplier.phone}{supplier.whatsappNumber ? ` · WhatsApp ${supplier.whatsappNumber}` : ""}</p><p className="text-sm text-muted">{supplier.email || "No email"}{supplier.address ? ` · ${supplier.address}` : ""}{supplier.city ? ` · ${supplier.city}` : ""}</p></div>
+                    <div className="flex flex-wrap gap-2 text-sm"><button type="button" className="text-clinic" onClick={() => setExpanded(expandedRow ? null : supplier.id)}>{expandedRow ? "Hide history" : "History & medicines"}</button><button type="button" className="text-clinic" onClick={() => editSupplier(supplier)}>Edit</button><button type="button" className="text-danger" onClick={() => void removeSupplier(supplier)}>Delete</button></div>
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-4"><div className="rounded-lg bg-ths-soft/40 p-3"><p className="text-xs text-muted">Supplied medicines</p><p className="font-semibold">{linked.length}</p></div><div className="rounded-lg bg-ths-soft/40 p-3"><p className="text-xs text-muted">Purchase total</p><p className="font-semibold">{formatPkr(ledger.purchased)}</p></div><div className="rounded-lg bg-ths-soft/40 p-3"><p className="text-xs text-muted">Paid</p><p className="font-semibold">{formatPkr(ledger.paid)}</p></div><div className="rounded-lg bg-amber-50 p-3"><p className="text-xs text-warning">Outstanding</p><p className="font-semibold text-warning">{formatPkr(ledger.due)}</p></div></div>
+                  {expandedRow && <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                    <section><h4 className="font-semibold text-ths-dark">Supplied medicines</h4>{linked.length ? <ul className="mt-2 space-y-2">{linked.map((medicine) => <li key={medicine.id} className="flex justify-between gap-3 rounded-lg border border-line p-3 text-sm"><span>{medicine.name}<span className="block text-xs text-muted">Batch {medicine.batchNumber || "—"} · exp {formatDate(medicine.expiryDate)}</span></span><span className={isExpired(medicine) ? "text-danger" : isOutOfStock(medicine) || isLowStock(medicine) ? "text-warning" : "text-ths-dark"}>{stockQuantity(medicine)} {medicine.unit}</span></li>)}</ul> : <p className="mt-2 text-sm text-muted">No medicine linked yet. Add one in Stock In.</p>}</section>
+                    <section><h4 className="font-semibold text-ths-dark">Purchase and payment history</h4>{ledger.purchases.length || ledger.payments.length ? <div className="mt-2 max-h-80 space-y-2 overflow-auto">{ledger.purchases.map((item) => <div key={item.id} className="rounded-lg border border-line p-3 text-sm"><p className="font-medium">Purchase · {item.invoiceNumber || "No invoice"} · {item.medicineName}</p><p className="mt-1 text-xs text-muted">{formatDate(item.purchaseDate || item.createdAt)} · batch {item.batchNumber || "—"} · qty {item.quantity} · {formatPkr(Number(item.purchaseAmount) || 0)}</p></div>)}{ledger.payments.map((item) => <div key={item.id} className="rounded-lg border border-clinic/20 bg-clinic-soft/30 p-3 text-sm"><p className="font-medium">Payment · {item.invoiceNumber || "No invoice"} · {formatPkr(Number(item.paymentAmount) || 0)}</p><p className="mt-1 text-xs text-muted">{formatDateTime(item.createdAt)} · {item.note}</p></div>)}</div> : <p className="mt-2 text-sm text-muted">No purchases or payments recorded.</p>}</section>
+                  </div>}
+                  {linked.some((medicine) => !isExpired(medicine) && (isLowStock(medicine) || isOutOfStock(medicine))) && <p className="mt-3 text-xs text-warning">This supplier has medicines that need restocking.</p>}
+                </article>;
+              })}
+            </div>}
+          </Card>
+        </div>
       </div>
-      {lowBySupplier.length > 0 && (
-        <Card className="mt-4">
-          <div className="border-b border-line px-5 py-4">
-            <h2 className="font-semibold text-ths-dark">Low stock by supplier</h2>
-            <p className="text-sm text-muted">
-              In-date medicines below minimum stock — call or order from the supplier listed.
-            </p>
-          </div>
-          <div className="divide-y divide-line">
-            {lowBySupplier.map(({ supplier, items }) => (
-              <div key={supplier.id} className="px-5 py-4">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <p className="font-medium text-ths-dark">{supplier.name}</p>
-                  <p className="text-sm text-muted">
-                    {supplier.contactPerson} · {supplier.phone}
-                  </p>
-                </div>
-                <ul className="mt-3 space-y-2">
-                  {items.map((medicine) => (
-                    <li key={medicine.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                      <Link prefetch={false} className="text-clinic" href={`/medicines/${medicine.id}`}>
-                        {medicine.name}
-                      </Link>
-                      <span className={isOutOfStock(medicine) ? "text-danger" : "text-warning"}>
-                        {isOutOfStock(medicine) ? "Out of stock" : `${stockQuantity(medicine)} left`}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
     </div>
   );
 }

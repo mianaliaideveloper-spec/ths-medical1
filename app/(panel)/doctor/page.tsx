@@ -5,6 +5,7 @@ import { Card, EmptyState, Field, Notice, PageHeader, fieldClass } from "@/compo
 import { useStore } from "@/components/store";
 import { MedicineNameAutocomplete } from "@/components/medicine-autocomplete";
 import { isExpired, stockQuantity } from "@/lib/format";
+import { formatDateTime } from "@/lib/format";
 import type { PrescribedMedicine } from "@/lib/types";
 
 export default function DoctorPage() {
@@ -20,6 +21,11 @@ export default function DoctorPage() {
   const [saving, setSaving] = useState(false);
   const waiting = receptionVisits.filter((visit) => visit.status === "waiting_doctor");
   const selected = waiting.find((visit) => visit.id === selectedId);
+  const patientHistory = selected
+    ? receptionVisits
+        .filter((visit) => visit.id !== selected.id && (visit.patientNumber || visit.patientId) === (selected.patientNumber || selected.patientId))
+        .slice(0, 5)
+    : [];
   const allergyComplaint = /allerg(y|ies)|الرجی/i.test(patientProblem);
   const inStockMedicines = medicines.filter((item) => stockQuantity(item) > 0 && !isExpired(item));
 
@@ -51,6 +57,7 @@ export default function DoctorPage() {
         {waiting.length ? <div className="mt-3 space-y-2">{waiting.map((visit) => <button key={visit.id} onClick={() => { setSelectedId(visit.id); setItems([]); setNote(""); setPatientProblem(visit.complaint || ""); setFollowUpDays(""); setSaved(false); }} className={`w-full rounded-xl border p-3 text-left ${selectedId === visit.id ? "border-clinic bg-clinic-soft" : "border-line"}`}><span className="font-semibold">#{visit.tokenNumber} · {visit.patientName}</span><span className="mt-1 block text-xs text-muted">{visit.patientNumber ? ("ID " + visit.patientNumber + " · ") : ""}{visit.slipNumber} · {visit.age} years</span>{visit.complaint && <span className="mt-2 block text-sm">{visit.complaint}</span>}</button>)}</div> : <EmptyState title="No patients waiting" body="New reception registrations will appear here." />}
       </Card>
       <Card className="p-5">{selected ? <><h2 className="text-lg font-semibold text-ths-dark">Prescription · {selected.patientName}</h2><p className="mt-1 text-sm text-muted">{selected.patientNumber ? ("Patient ID " + selected.patientNumber + " · ") : ""}{selected.slipNumber} · {selected.age} years</p>
+        {patientHistory.length > 0 && <section className="mt-4 rounded-xl border border-line bg-ths-soft/40 p-4"><h3 className="font-semibold text-ths-dark">Previous visits and medicines</h3><div className="mt-2 space-y-3">{patientHistory.map((visit) => <div key={visit.id} className="border-t border-line pt-2 text-sm"><p className="font-medium">{formatDateTime(visit.createdAt)} · {visit.slipNumber}</p>{visit.complaint && <p className="mt-1 text-muted">Problem: {visit.complaint}</p>}{visit.prescription?.length ? <p className="mt-1 text-muted">Medicines: {visit.prescription.map((item) => `${item.medicineName} (${item.dosage}; ${item.quantity})`).join(", ")}</p> : <p className="mt-1 text-muted">No medicines on record.</p>}{visit.doctorNote && <p className="mt-1 text-muted">Doctor: {visit.doctorNote}</p>}</div>)}</div></section>}
         <Field label="Patient problem / diagnosis"><textarea className={`${fieldClass} mt-1 min-h-20`} placeholder="Write the patient's problem or diagnosis" value={patientProblem} onChange={(e) => setPatientProblem(e.target.value)} /></Field>
         <div className="mt-4 max-w-xl"><MedicineNameAutocomplete label="Select medicine" placeholder="Type a name, e.g. P…" medicines={inStockMedicines} inventoryOnly value={medicineQuery} onChange={setMedicineQuery} onSelectMedicine={(item) => { if (item.medicineId) addMedicine(item.medicineId); }} /></div>
         {inStockMedicines.length === 0 && <p className="mt-2 text-sm text-warning">No unexpired medicines are in stock. Add stock before prescribing.</p>}

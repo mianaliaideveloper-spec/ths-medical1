@@ -112,6 +112,7 @@ import type {
   Category,
   Medicine,
   MedicineInput,
+  MedicationScheduleTime,
   ProfileUpdateInput,
   PrescribedMedicine,
   ReceptionVisit,
@@ -120,13 +121,17 @@ import type {
   RentItemInput,
   SchoolStudent,
   SchoolStudentInput,
+  StudentMedicineIssueLine,
   StockMovement,
+  StockPurchaseInput,
+  SupplierPaymentInput,
   StockType,
   Supplier,
 } from "@/lib/types";
 
 type StoreContextValue = {
   ready: boolean;
+  dashboardDataReady: boolean;
   configured: boolean;
   user: DeskSession | null;
   admin: AdminProfile | null;
@@ -140,7 +145,7 @@ type StoreContextValue = {
   rentItems: RentItem[];
   registerReceptionVisit: (input: ReceptionVisitInput) => Promise<ReceptionVisit>;
   registerSchoolStudent: (input: SchoolStudentInput) => Promise<SchoolStudent>;
-  issueSchoolStudentMedicine: (studentId: string, medicineId: string, quantity: number, note: string) => Promise<void>;
+  issueSchoolStudentMedicine: (studentId: string, medicines: StudentMedicineIssueLine[], note: string) => Promise<void>;
   markReceptionMedicineIssued: (id: string) => Promise<void>;
   saveReceptionPrescription: (id: string, prescription: PrescribedMedicine[], doctorNote: string, complaint: string | undefined, followUpDays: number) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
@@ -160,6 +165,8 @@ type StoreContextValue = {
     quantity: number,
     note: string,
   ) => Promise<void>;
+  recordStockPurchase: (input: StockPurchaseInput) => Promise<void>;
+  recordSupplierPayment: (input: SupplierPaymentInput) => Promise<void>;
   saveRentItem: (input: RentItemInput, id?: string) => Promise<void>;
   deleteRentItem: (id: string) => Promise<void>;
   issueCustomerBill: (rows: BillCartRow[]) => Promise<BillIssueSummary[]>;
@@ -253,6 +260,7 @@ function withoutId<T extends { id: string }>(item: T): Omit<T, "id"> {
 export function StoreProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [ready, setReady] = useState(false);
+  const [loadedCollections, setLoadedCollections] = useState<Set<string>>(() => new Set());
   const [configured] = useState(true);
   const [user, setUser] = useState<DeskSession | null>(null);
   const [admin, setAdmin] = useState<AdminProfile | null>(null);
@@ -290,6 +298,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setReceptionVisits(normalizeReceptionVisits(data.receptionVisits ?? []));
       setSchoolStudents([]);
       setRentItems((data.rentItems ?? []).sort((a, b) => a.name.localeCompare(b.name)));
+      setLoadedCollections(new Set(["medicines", "suppliers", "stockMovements", "receptionVisits"]));
       setReady(true);
       return;
     }
@@ -355,12 +364,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const isRoute = (routes: string[]) => routes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
     const needsMedicines = isRoute([
       "/dashboard", "/alerts", "/current-stock", "/doctor", "/expiry-report",
-      "/low-stock-report", "/reports", "/suppliers", "/stock-in", "/medicines", "/student-medicine-issue",
+      "/low-stock-report", "/reports", "/suppliers", "/stock-in", "/medicines", "/student-medicine-issue", "/medicine-issue",
     ]);
     const needsCategories = isRoute(["/medicines"]);
-    const needsSuppliers = isRoute(["/dashboard", "/medicines", "/suppliers"]);
-    const needsMovements = isRoute(["/reports", "/student-medicine-issue"]) || pathname.startsWith("/medicines/");
-    const needsReception = isRoute(["/doctor", "/reception", "/medicine-issue"]);
+    const needsSuppliers = isRoute(["/dashboard", "/medicines", "/suppliers", "/stock-in"]);
+    const needsMovements = isRoute(["/dashboard", "/reports", "/student-medicine-issue", "/stock-in", "/suppliers"]) || pathname.startsWith("/medicines/");
+    const needsReception = isRoute(["/dashboard", "/doctor", "/reception", "/medicine-issue"]);
     const needsSchoolStudents = isRoute(["/school-students", "/student-medicine-issue"]);
     const needsRentItems = isRoute(["/rent"]);
     if (!needsMedicines && !needsCategories && !needsSuppliers && !needsMovements && !needsReception && !needsSchoolStudents && !needsRentItems) return;
@@ -376,21 +385,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       };
       if (needsMedicines) listenOnce("medicines", () => onSnapshot(collection(firebase.db, "medicines"), (snap: QuerySnapshot<DocumentData>) => {
         setMedicines(snap.docs.map((item) => mapDoc<Medicine>(item.id, item.data())).sort((a, b) => a.name.localeCompare(b.name)));
+        setLoadedCollections((current) => new Set(current).add("medicines"));
       }, handleReadError("medicines")));
       if (needsCategories) listenOnce("categories", () => onSnapshot(collection(firebase.db, "categories"), (snap: QuerySnapshot<DocumentData>) => {
         setCategories(snap.docs.map((item) => mapDoc<Category>(item.id, item.data())).sort((a, b) => a.name.localeCompare(b.name)));
       }, handleReadError("categories")));
       if (needsSuppliers) listenOnce("suppliers", () => onSnapshot(collection(firebase.db, "suppliers"), (snap: QuerySnapshot<DocumentData>) => {
         setSuppliers(snap.docs.map((item) => mapDoc<Supplier>(item.id, item.data())).sort((a, b) => a.name.localeCompare(b.name)));
+        setLoadedCollections((current) => new Set(current).add("suppliers"));
       }, handleReadError("suppliers")));
       if (needsMovements) listenOnce("stockMovements", () => onSnapshot(collection(firebase.db, "stockMovements"), (snap: QuerySnapshot<DocumentData>) => {
         setMovements(snap.docs.map((item) => mapDoc<StockMovement>(item.id, item.data())).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+        setLoadedCollections((current) => new Set(current).add("stockMovements"));
       }, handleReadError("stock movements")));
       if (needsReception) listenOnce("receptionVisits", () => onSnapshot(collection(firebase.db, "receptionVisits"), (snap: QuerySnapshot<DocumentData>) => {
         setReceptionVisits(normalizeReceptionVisits(snap.docs
           .filter((item) => item.id !== "__patient-id-counter__")
           .map((item) => mapDoc<ReceptionVisit>(item.id, item.data()))
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt))));
+        setLoadedCollections((current) => new Set(current).add("receptionVisits"));
       }, handleReadError("patient visits")));
       if (needsSchoolStudents) listenOnce("schoolStudents", () => onSnapshot(collection(firebase.db, "schoolStudents"), (snap: QuerySnapshot<DocumentData>) => {
         setSchoolStudents(snap.docs.map((item) => mapDoc<SchoolStudent>(item.id, item.data())).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
@@ -415,6 +428,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     return {
       ready,
+      dashboardDataReady: ["medicines", "suppliers", "stockMovements", "receptionVisits"].every((key) => loadedCollections.has(key)),
       configured,
       user,
       admin,
@@ -728,8 +742,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const schoolName = input.schoolName.trim();
         const className = input.className.trim();
         const phone = input.phone.trim();
-        if (!studentNumber || !studentName || !schoolName || !className || !phone) {
-          throw new Error("Reception must enter the student ID, name, school, grade, and phone number.");
+        if (!studentNumber || !studentName || !schoolName || !className) {
+          throw new Error("Reception must enter the student ID, name, school, and grade.");
         }
         if (!/^[A-Z0-9][A-Z0-9-]{0,29}$/.test(studentNumber)) {
           throw new Error("Student ID can contain letters, numbers, and hyphens only.");
@@ -765,44 +779,66 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setSchoolStudents((current) => [student, ...current]);
         return student;
       },
-      async issueSchoolStudentMedicine(studentId, medicineId, quantity, note) {
-        const issuedQuantity = Math.floor(Number(quantity));
+      async issueSchoolStudentMedicine(studentId, medicines, note) {
         if (!studentId.trim()) throw new Error("Select a registered THS student.");
-        if (!medicineId.trim()) throw new Error("Select a medicine.");
-        if (!Number.isFinite(issuedQuantity) || issuedQuantity <= 0) throw new Error("Enter a quantity greater than zero.");
+        if (!medicines.length) throw new Error("Add at least one medicine.");
+        if (medicines.some((item) => !item.medicineId.trim() || !Number.isSafeInteger(item.quantity) || item.quantity < 1)) {
+          throw new Error("Each medicine needs a valid quantity.");
+        }
         if (isLocalAdmin(user?.uid)) {
           throw new Error("Student medicine issues require Firebase sign-in and are never saved locally.");
         }
         const firebase = await firebaseOrThrow();
         const issuedAt = new Date().toISOString();
-        await runTransaction(firebase.db, async (tx: Transaction) => {
+        const allowedTimes: MedicationScheduleTime[] = ["morning", "afternoon", "evening", "night"];
+        const totals = new Map<string, number>();
+        for (const item of medicines) totals.set(item.medicineId, (totals.get(item.medicineId) || 0) + item.quantity);
+        const medicineRefs = [...totals.keys()].map((id) => doc(firebase.db, "medicines", id));
+        const movementRefs = medicines.map(() => doc(collection(firebase.db, "stockMovements")));
+        const savedMovements = await runTransaction(firebase.db, async (tx: Transaction) => {
           const studentRef = doc(firebase.db, "schoolStudents", studentId);
-          const medicineRef = doc(firebase.db, "medicines", medicineId);
-          const [studentSnap, medicineSnap] = await Promise.all([tx.get(studentRef), tx.get(medicineRef)]);
+          const [studentSnap, ...medicineSnaps] = await Promise.all([tx.get(studentRef), ...medicineRefs.map((ref) => tx.get(ref))]);
           if (!studentSnap.exists()) throw new Error("Registered student was not found.");
-          if (!medicineSnap.exists()) throw new Error("Medicine was not found.");
           const student = mapDoc<SchoolStudent>(studentSnap.id, studentSnap.data());
-          const medicine = mapDoc<Medicine>(medicineSnap.id, medicineSnap.data());
-          const available = Math.max(0, Math.floor(Number(medicine.quantity) || 0));
-          if (issuedQuantity > available) throw new Error(`Only ${available} ${medicine.unit || "unit(s)"} are in stock.`);
-          const balanceAfter = available - issuedQuantity;
-          tx.update(medicineRef, { quantity: balanceAfter, updatedAt: issuedAt });
-          const movementRef = doc(collection(firebase.db, "stockMovements"));
-          tx.set(movementRef, {
-            medicineId: medicine.id,
-            medicineName: medicine.name,
-            type: "out",
-            quantity: issuedQuantity,
-            balanceAfter,
-            note: note.trim() || `THS student medicine issue · ${student.studentNumber || student.id}`,
-            schoolStudentId: student.studentNumber || student.id,
-            schoolStudentName: student.studentName,
-            schoolName: student.schoolName,
-            className: student.className,
-            createdAt: issuedAt,
-            createdBy: FIRESTORE_ACTOR_LABEL,
+          const inventory = new Map<string, Medicine>();
+          medicineSnaps.forEach((snapshot) => {
+            if (snapshot.exists()) inventory.set(snapshot.id, mapDoc<Medicine>(snapshot.id, snapshot.data()!));
           });
-        });
+          for (const [id, total] of totals) {
+            const medicine = inventory.get(id);
+            if (!medicine) throw new Error("One of the selected medicines was not found.");
+            const available = Math.max(0, Math.floor(Number(medicine.quantity) || 0));
+            if (total > available) throw new Error(`Only ${available} ${medicine.unit || "unit(s)"} of ${medicine.name} are in stock.`);
+            tx.update(doc(firebase.db, "medicines", id), { quantity: available - total, updatedAt: issuedAt });
+          }
+          const balances = new Map([...inventory.entries()].map(([id, medicine]) => [id, Math.max(0, Math.floor(Number(medicine.quantity) || 0))]));
+          return medicines.map((item, index) => {
+            const medicine = inventory.get(item.medicineId)!;
+            const balanceAfter = (balances.get(item.medicineId) || 0) - item.quantity;
+            balances.set(item.medicineId, balanceAfter);
+            const movement = {
+              medicineId: medicine.id,
+              medicineName: medicine.name,
+              type: "out" as const,
+              quantity: item.quantity,
+              balanceAfter,
+              note: [note.trim(), item.dosage.trim()].filter(Boolean).join(" · ") || `THS student medicine issue · ${student.studentNumber || student.id}`,
+              dosage: item.dosage.trim(),
+              schedule: item.schedule.filter((time) => allowedTimes.includes(time)),
+              durationDays: item.durationDays,
+              issueDate: issuedAt,
+              schoolStudentId: student.studentNumber || student.id,
+              schoolStudentName: student.studentName,
+              schoolName: student.schoolName,
+              className: student.className,
+              createdAt: issuedAt,
+              createdBy: FIRESTORE_ACTOR_LABEL,
+            };
+            tx.set(movementRefs[index], movement);
+            return { ...movement, id: movementRefs[index].id } as StockMovement;
+          });
+        }) as StockMovement[];
+        setMovements((current) => [...savedMovements, ...current.filter((item) => !savedMovements.some((saved) => saved.id === item.id))]);
       },
       async markReceptionMedicineIssued(id) {
         const issuedAt = new Date().toISOString();
@@ -1062,6 +1098,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await addDoc(collection(firebase.db, "suppliers"), input);
       },
       async deleteSupplier(id) {
+        if (movements.some((item) => item.supplierId === id)) {
+          throw new Error("This supplier has purchase or payment history and cannot be deleted.");
+        }
         if (medicines.some((item) => item.supplierId === id)) {
           throw new Error("Reassign medicines from this supplier first.");
         }
@@ -1138,6 +1177,175 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           });
         });
       },
+      async recordStockPurchase(input) {
+        const supplier = suppliers.find((item) => item.id === input.supplierId);
+        if (!supplier) throw new Error("Select a supplier from the saved supplier list.");
+        const invoiceNumber = input.invoiceNumber.trim();
+        const purchaseDate = input.purchaseDate.trim();
+        const line = {
+          ...input.line,
+          batchNumber: input.line.batchNumber.trim(),
+          quantity: Number(input.line.quantity),
+          purchasePrice: Number(input.line.purchasePrice),
+          salePrice: Number(input.line.salePrice),
+          expiryDate: input.line.expiryDate.trim(),
+        };
+        if (!invoiceNumber || !/^\d{4}-\d{2}-\d{2}$/.test(purchaseDate)) throw new Error("Enter an invoice number and purchase date.");
+        if (!line.medicineId || !line.batchNumber || !line.expiryDate) throw new Error("Select a medicine and enter its batch number and expiry date.");
+        if (!Number.isSafeInteger(line.quantity) || line.quantity < 1) throw new Error("Purchase quantity must be a whole number greater than zero.");
+        if (![line.purchasePrice, line.salePrice].every((price) => Number.isFinite(price) && price >= 0)) throw new Error("Enter valid non-negative purchase and selling prices.");
+        if (Number.isNaN(Date.parse(`${line.expiryDate}T00:00:00`))) throw new Error("Enter a valid expiry date.");
+        if (isExpired({ expiryDate: line.expiryDate })) throw new Error("Expired medicine cannot be added as usable stock.");
+        const totalAmount = line.quantity * line.purchasePrice;
+        const amountPaid = Number(input.amountPaid);
+        if (!Number.isFinite(amountPaid) || amountPaid < 0 || amountPaid > totalAmount) throw new Error("Amount paid must be between zero and the purchase total.");
+        const now = new Date().toISOString();
+        const purchaseGroupId = `${input.supplierId}::${invoiceNumber.toLowerCase()}`;
+        const paymentStatus = amountPaid >= totalAmount ? "paid" : amountPaid > 0 ? "partial" : "unpaid";
+
+        if (isLocalAdmin(user?.uid)) {
+          const data = readDeskData();
+          const medicine = data.medicines.find((item) => item.id === line.medicineId);
+          if (!medicine) throw new Error("Medicine was not found.");
+          const sameBatch = medicine.batchNumber.trim().toLowerCase() === line.batchNumber.toLowerCase();
+          const targetId = sameBatch ? medicine.id : crypto.randomUUID();
+          const updatedMedicine: Medicine = {
+            ...medicine,
+            id: targetId,
+            batchNumber: line.batchNumber,
+            quantity: (sameBatch ? stockQuantity(medicine) : 0) + line.quantity,
+            purchasePrice: line.purchasePrice,
+            salePrice: line.salePrice,
+            expiryDate: line.expiryDate,
+            supplierId: supplier.id,
+            supplierName: supplier.name,
+            createdAt: sameBatch ? medicine.createdAt : now,
+            updatedAt: now,
+          };
+          data.medicines = sameBatch
+            ? data.medicines.map((item) => item.id === medicine.id ? updatedMedicine : item)
+            : [...data.medicines, updatedMedicine];
+          const stockEvent: StockMovement = {
+            id: crypto.randomUUID(), medicineId: targetId, medicineName: medicine.name, type: "in",
+            quantity: line.quantity, balanceAfter: updatedMedicine.quantity,
+            note: `Purchase ${invoiceNumber}`, createdAt: now, createdBy: FIRESTORE_ACTOR_LABEL,
+            supplierId: supplier.id, supplierName: supplier.name, invoiceNumber, purchaseDate,
+            purchaseGroupId, batchNumber: line.batchNumber, purchasePrice: line.purchasePrice,
+            salePrice: line.salePrice, expiryDate: line.expiryDate, purchaseAmount: totalAmount, paymentStatus,
+          };
+          const events: StockMovement[] = [stockEvent];
+          if (amountPaid > 0) events.push({
+            id: crypto.randomUUID(), medicineId: "", medicineName: "Supplier payment", type: "supplier_payment",
+            quantity: 0, balanceAfter: 0, note: "Initial invoice payment", createdAt: now,
+            createdBy: FIRESTORE_ACTOR_LABEL, supplierId: supplier.id, supplierName: supplier.name,
+            invoiceNumber, purchaseDate, purchaseGroupId, paymentAmount: amountPaid,
+          });
+          data.movements = [...events, ...data.movements];
+          writeDeskData(data);
+          setMedicines(data.medicines);
+          setMovements(data.movements);
+          return;
+        }
+
+        const firebase = await firebaseOrThrow();
+        const medicineRef = doc(firebase.db, "medicines", line.medicineId);
+        const movementRef = doc(collection(firebase.db, "stockMovements"));
+        const paymentRef = amountPaid > 0 ? doc(collection(firebase.db, "stockMovements")) : null;
+        const result = (await runTransaction(firebase.db, async (tx: Transaction) => {
+          const medicineSnap = await tx.get(medicineRef);
+          if (!medicineSnap.exists()) throw new Error("Medicine was not found.");
+          const medicine = mapDoc<Medicine>(medicineSnap.id, medicineSnap.data()!);
+          const sameBatch = medicine.batchNumber.trim().toLowerCase() === line.batchNumber.toLowerCase();
+          const targetRef = sameBatch ? medicineRef : doc(collection(firebase.db, "medicines"));
+          const updatedMedicine: Medicine = {
+            ...medicine,
+            id: targetRef.id,
+            batchNumber: line.batchNumber,
+            quantity: (sameBatch ? stockQuantity(medicine) : 0) + line.quantity,
+            purchasePrice: line.purchasePrice,
+            salePrice: line.salePrice,
+            expiryDate: line.expiryDate,
+            supplierId: supplier.id,
+            supplierName: supplier.name,
+            createdAt: sameBatch ? medicine.createdAt : now,
+            updatedAt: now,
+          };
+          if (sameBatch) tx.update(targetRef, {
+            batchNumber: line.batchNumber, quantity: updatedMedicine.quantity,
+            purchasePrice: line.purchasePrice, salePrice: line.salePrice,
+            expiryDate: line.expiryDate, supplierId: supplier.id,
+            supplierName: supplier.name, updatedAt: now,
+          });
+          else {
+            const { id: _id, ...lot } = updatedMedicine;
+            void _id;
+            tx.set(targetRef, lot);
+          }
+          tx.set(movementRef, {
+            medicineId: targetRef.id, medicineName: medicine.name, type: "in", quantity: line.quantity,
+            balanceAfter: updatedMedicine.quantity, note: `Purchase ${invoiceNumber}`,
+            createdAt: now, createdBy: FIRESTORE_ACTOR_LABEL, supplierId: supplier.id,
+            supplierName: supplier.name, invoiceNumber, purchaseDate, purchaseGroupId,
+            batchNumber: line.batchNumber, purchasePrice: line.purchasePrice, salePrice: line.salePrice,
+            expiryDate: line.expiryDate, purchaseAmount: totalAmount, paymentStatus,
+          });
+          if (paymentRef) tx.set(paymentRef, {
+            medicineId: "", medicineName: "Supplier payment", type: "supplier_payment", quantity: 0,
+            balanceAfter: 0, note: "Initial invoice payment", createdAt: now,
+            createdBy: FIRESTORE_ACTOR_LABEL, supplierId: supplier.id, supplierName: supplier.name,
+            invoiceNumber, purchaseDate, purchaseGroupId, paymentAmount: amountPaid,
+          });
+          const stockEvent: StockMovement = {
+            id: movementRef.id, medicineId: targetRef.id, medicineName: medicine.name, type: "in",
+            quantity: line.quantity, balanceAfter: updatedMedicine.quantity,
+            note: `Purchase ${invoiceNumber}`, createdAt: now, createdBy: FIRESTORE_ACTOR_LABEL,
+            supplierId: supplier.id, supplierName: supplier.name, invoiceNumber, purchaseDate,
+            purchaseGroupId, batchNumber: line.batchNumber, purchasePrice: line.purchasePrice,
+            salePrice: line.salePrice, expiryDate: line.expiryDate, purchaseAmount: totalAmount, paymentStatus,
+          };
+          const paymentEvent: StockMovement | null = paymentRef ? {
+            id: paymentRef.id, medicineId: "", medicineName: "Supplier payment", type: "supplier_payment",
+            quantity: 0, balanceAfter: 0, note: "Initial invoice payment", createdAt: now,
+            createdBy: FIRESTORE_ACTOR_LABEL, supplierId: supplier.id, supplierName: supplier.name,
+            invoiceNumber, purchaseDate, purchaseGroupId, paymentAmount: amountPaid,
+          } : null;
+          return { updatedMedicine, events: paymentEvent ? [stockEvent, paymentEvent] : [stockEvent] };
+        })) as { updatedMedicine: Medicine; events: StockMovement[] };
+        setMedicines((current) => result.updatedMedicine.id === line.medicineId
+          ? current.map((item) => item.id === line.medicineId ? result.updatedMedicine : item)
+          : [...current, result.updatedMedicine].sort((a, b) => a.name.localeCompare(b.name)));
+        setMovements((current) => [...result.events, ...current.filter((item) => !result.events.some((event) => event.id === item.id))]);
+      },
+      async recordSupplierPayment(input) {
+        const invoiceNumber = input.invoiceNumber.trim();
+        const supplier = suppliers.find((item) => item.id === input.supplierId);
+        const amount = Number(input.amount);
+        if (!supplier || !invoiceNumber || !Number.isFinite(amount) || amount <= 0) throw new Error("Select an invoice and enter a payment greater than zero.");
+        const group = movements.filter((item) => item.type === "in" && item.supplierId === supplier.id && item.invoiceNumber?.toLowerCase() === invoiceNumber.toLowerCase());
+        const purchased = group.reduce((sum, item) => sum + (Number(item.purchaseAmount) || 0), 0);
+        const paid = movements.filter((item) => item.type === "supplier_payment" && item.supplierId === supplier.id && item.invoiceNumber?.toLowerCase() === invoiceNumber.toLowerCase()).reduce((sum, item) => sum + (Number(item.paymentAmount) || 0), 0);
+        const outstanding = Math.max(0, purchased - paid);
+        if (!purchased) throw new Error("No saved purchase was found for this supplier invoice.");
+        if (amount > outstanding) throw new Error(`Payment is more than the outstanding balance of ${Math.round(outstanding)}.`);
+        const now = new Date().toISOString();
+        const event: StockMovement = {
+          id: crypto.randomUUID(), medicineId: "", medicineName: "Supplier payment", type: "supplier_payment",
+          quantity: 0, balanceAfter: 0, note: input.note?.trim() || "Supplier payment",
+          createdAt: now, createdBy: FIRESTORE_ACTOR_LABEL, supplierId: supplier.id,
+          supplierName: supplier.name, invoiceNumber, purchaseGroupId: `${supplier.id}::${invoiceNumber.toLowerCase()}`,
+          paymentAmount: amount,
+        };
+        if (isLocalAdmin(user?.uid)) {
+          const data = readDeskData();
+          data.movements = [event, ...data.movements];
+          writeDeskData(data);
+          setMovements(data.movements);
+          return;
+        }
+        const firebase = await firebaseOrThrow();
+        const ref = await addDoc(collection(firebase.db, "stockMovements"), withoutId(event));
+        setMovements((current) => [{ ...event, id: ref.id }, ...current]);
+      },
       async saveRentItem(input, id) {
         const payload = {
           name: input.name.trim(),
@@ -1211,7 +1419,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             const balanceAfter = item.quantity - issued;
             tx.update(medicineRefs[i], { quantity: balanceAfter, updatedAt: now });
             const movementRef = doc(collection(firebase.db, "stockMovements"));
-            tx.set(movementRef, { medicineId: item.id, medicineName: item.name, type: "out", quantity: issued, balanceAfter, note, createdAt: now, createdBy: FIRESTORE_ACTOR_LABEL });
+            tx.set(movementRef, { medicineId: item.id, medicineName: item.name, type: "out", quantity: issued, balanceAfter, saleAmount: item.salePrice * issued, note, createdAt: now, createdBy: FIRESTORE_ACTOR_LABEL });
             summary.push({ kind: "medicine", name: item.name, issued, unit: item.unit, balanceAfter });
           }
           for (let i = 0; i < rentRefs.length; i += 1) {
@@ -1232,6 +1440,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     authError,
     categories,
     configured,
+    loadedCollections,
     medicines,
     movements,
     receptionVisits,

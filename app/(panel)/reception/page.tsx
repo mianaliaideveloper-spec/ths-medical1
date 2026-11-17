@@ -50,7 +50,8 @@ export default function ReceptionPage() {
       ? receptionVisits.filter((visit) => {
           const id = (visit.patientNumber || visit.patientId || "").trim().toLowerCase();
           const phone = (visit.phone || "").replace(/\D/g, "");
-          return id.includes(searchKey) || (searchDigits.length >= 4 && phone.includes(searchDigits));
+          const name = visit.patientName.trim().toLowerCase();
+          return id.includes(searchKey) || name.includes(searchKey) || (searchDigits.length >= 4 && phone.includes(searchDigits));
         })
       : [],
     [receptionVisits, searchDigits, searchKey],
@@ -165,8 +166,8 @@ export default function ReceptionPage() {
             className={fieldClass + " sm:max-w-sm"}
             value={patientSearch}
             onChange={(event) => setPatientSearch(event.target.value)}
-            placeholder="THS-001 or phone number"
-            aria-label="Search patient by ID or phone"
+            placeholder="Patient name, THS ID or phone number"
+            aria-label="Search patient by name, ID or phone"
           />
           <button type="submit" className="rounded-lg bg-clinic px-5 py-2.5 text-sm font-semibold text-white hover:bg-clinic-dark">
             Search
@@ -242,14 +243,14 @@ export default function ReceptionPage() {
                 </ul>
               </div>
             )}
-            <p className="text-xs text-muted">This visit will get a daily token and be sent to the doctor.</p>
+            <p className="text-xs text-muted">This visit is saved in Firestore with a daily token. Give the token slip to the patient for the doctor; when they return, enter the doctor&apos;s written prescription under Medicine Issue.</p>
             {error && <Notice>{error}</Notice>}
             <button
               type="submit"
               disabled={busy}
               className="w-full rounded-lg bg-ths px-4 py-2.5 text-sm font-semibold text-white hover:bg-ths-dark disabled:opacity-60"
             >
-              {busy ? "Saving…" : "Save patient & send to doctor"}
+              {busy ? "Saving…" : "Save patient & prepare doctor slip"}
             </button>
           </form>
         </Card>
@@ -305,7 +306,7 @@ export default function ReceptionPage() {
                     <ul className="mt-1 list-inside list-disc">
                       {visit.prescription?.map((med, index) => (
                         <li key={med.medicineId + "-" + index}>
-                          {med.medicineName} — {med.quantity} · {med.dosage}{med.instructions ? " (" + med.instructions + ")" : ""}
+                          {med.medicineName} — quantity {med.quantity}{med.durationDays ? ` for ${med.durationDays} day(s)` : ""} · {med.dosage}{med.instructions ? " (" + med.instructions + ")" : ""}
                         </li>
                       ))}
                     </ul>

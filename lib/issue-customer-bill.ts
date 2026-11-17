@@ -69,6 +69,7 @@ export function applyCustomerBillStockLocal(
       type: "out",
       quantity: qty,
       balanceAfter: next,
+      saleAmount: medicine.salePrice * qty,
       note,
       createdAt: now,
       createdBy,
