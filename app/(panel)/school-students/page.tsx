@@ -7,7 +7,7 @@ import { isLocalAdmin } from "@/lib/desk";
 import { formatDateTime } from "@/lib/format";
 import type { SchoolStudent } from "@/lib/types";
 
-const blank = { studentName: "", schoolName: "THS", className: "", phone: "" };
+const blank = { studentNumber: "", studentName: "", schoolName: "THS", className: "", phone: "" };
 
 export default function SchoolStudentsPage() {
   const { schoolStudents, registerSchoolStudent, user } = useStore();
@@ -53,8 +53,11 @@ export default function SchoolStudentsPage() {
       <Card className="p-5">
         <h2 className="font-semibold text-ths-dark">Register a student</h2>
         <p className="mt-1 text-sm font-medium text-clinic">Free of cost</p>
-        <p className="mt-1 text-xs text-muted">Student ID is assigned automatically, starting at 001.</p>
+        <p className="mt-1 text-xs text-muted">Reception enters the student's unique ID. The system does not generate it.</p>
         <form onSubmit={onSubmit} className="mt-4 space-y-3">
+          <Field label="Student unique ID (entered by reception)">
+            <input className={fieldClass} value={form.studentNumber} onChange={(event) => set("studentNumber", event.target.value.toUpperCase())} placeholder="Enter the ID assigned by reception" required />
+          </Field>
           <Field label="Student name">
             <input className={fieldClass} value={form.studentName} onChange={(event) => set("studentName", event.target.value)} required />
           </Field>
@@ -83,7 +86,7 @@ export default function SchoolStudentsPage() {
         <div className="flex flex-col gap-3 border-b border-line px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="font-semibold text-ths-dark">Registered students</h2>
-            <p className="text-sm text-muted">{schoolStudents.length} student(s) · IDs start at 001 · Free of cost</p>
+            <p className="text-sm text-muted">{schoolStudents.length} student(s) · IDs entered by reception · Free of cost</p>
           </div>
           <input className={`${fieldClass} sm:max-w-xs`} aria-label="Search students" placeholder="Search ID, name, school or phone" value={search} onChange={(event) => setSearch(event.target.value)} />
         </div>

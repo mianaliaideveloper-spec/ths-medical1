@@ -65,7 +65,7 @@ export type ReceptionVisit = {
   id: string;
   /** Stable patient identity reused across visits when the phone number matches. */
   patientId?: string;
-  /** Reception-assigned numeric patient ID reused across visits. */
+  /** Reception-entered patient ID reused across visits. */
   patientNumber?: string;
   /** Daily queue number (1 = first slip of the day). */
   tokenNumber: number;
@@ -90,7 +90,7 @@ export type ReceptionVisit = {
 };
 
 export type ReceptionVisitInput = {
-  patientNumber?: string;
+  patientNumber: string;
   patientName: string;
   cnic: string;
   age: number;
@@ -110,7 +110,7 @@ export type SchoolStudent = {
   createdBy: string;
 };
 
-export type SchoolStudentInput = Omit<SchoolStudent, "id" | "studentNumber" | "fee" | "createdAt" | "createdBy">;
+export type SchoolStudentInput = Omit<SchoolStudent, "id" | "fee" | "createdAt" | "createdBy"> & { studentNumber: string };
 
 export type StockType = "in" | "out" | "adjustment";
 
@@ -126,6 +126,11 @@ export type StockMovement = {
   createdBy: string;
   /** Rent desk item (when medicineId is empty). */
   rentItemId?: string;
+  /** School student details for student-only medicine issues. */
+  schoolStudentId?: string;
+  schoolStudentName?: string;
+  schoolName?: string;
+  className?: string;
 };
 
 /** Rentable items (wheelchair, nebulizer, etc.) — stock minus on customer bill. */

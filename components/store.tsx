@@ -60,6 +60,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -85,7 +86,6 @@ import {
 import { prepareMedicineForSave } from "@/lib/medicine-save";
 import {
   nextSlipNumber,
-  nextPatientNumber,
   nextTokenNumber,
   normalizeReceptionVisits,
   RECEPTION_SLIP_FEE_PKR,
@@ -140,6 +140,7 @@ type StoreContextValue = {
   rentItems: RentItem[];
   registerReceptionVisit: (input: ReceptionVisitInput) => Promise<ReceptionVisit>;
   registerSchoolStudent: (input: SchoolStudentInput) => Promise<SchoolStudent>;
+  issueSchoolStudentMedicine: (studentId: string, medicineId: string, quantity: number, note: string) => Promise<void>;
   markReceptionMedicineIssued: (id: string) => Promise<void>;
   saveReceptionPrescription: (id: string, prescription: PrescribedMedicine[], doctorNote: string, complaint: string | undefined, followUpDays: number) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
@@ -263,6 +264,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [receptionVisits, setReceptionVisits] = useState<ReceptionVisit[]>([]);
   const [schoolStudents, setSchoolStudents] = useState<SchoolStudent[]>([]);
   const [rentItems, setRentItems] = useState<RentItem[]>([]);
+  // Keep Firestore listeners warm while navigating so each route change does not
+  // reread the same full collection. These subscriptions live in memory only.
+  const routeListeners = useRef(new Map<string, () => void>());
 
   // Restore the local desk session once before enabling protected pages.
   /* eslint-disable react-hooks/set-state-in-effect */
@@ -340,49 +344,58 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
+    return () => {
+      routeListeners.current.forEach((unsubscribe) => unsubscribe());
+      routeListeners.current.clear();
+    };
+  }, [user?.uid]);
+
+  useEffect(() => {
     if (!user || isLocalAdmin(user.uid)) return;
     const isRoute = (routes: string[]) => routes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
     const needsMedicines = isRoute([
       "/dashboard", "/alerts", "/current-stock", "/doctor", "/expiry-report",
-      "/low-stock-report", "/reports", "/suppliers", "/stock-in", "/medicines",
+      "/low-stock-report", "/reports", "/suppliers", "/stock-in", "/medicines", "/student-medicine-issue",
     ]);
     const needsCategories = isRoute(["/medicines"]);
     const needsSuppliers = isRoute(["/dashboard", "/medicines", "/suppliers"]);
-    const needsMovements = isRoute(["/reports"]) || pathname.startsWith("/medicines/");
+    const needsMovements = isRoute(["/reports", "/student-medicine-issue"]) || pathname.startsWith("/medicines/");
     const needsReception = isRoute(["/doctor", "/reception", "/medicine-issue"]);
-    const needsSchoolStudents = isRoute(["/school-students"]);
+    const needsSchoolStudents = isRoute(["/school-students", "/student-medicine-issue"]);
     const needsRentItems = isRoute(["/rent"]);
     if (!needsMedicines && !needsCategories && !needsSuppliers && !needsMovements && !needsReception && !needsSchoolStudents && !needsRentItems) return;
     let active = true;
-    const unsubscribers: Array<() => void> = [];
     void Promise.all([loadFirebaseClient(), loadFirestoreApi()]).then(([firebase]) => {
       if (!active) return;
+      const listenOnce = (key: string, start: () => () => void) => {
+        if (!routeListeners.current.has(key)) routeListeners.current.set(key, start());
+      };
       const handleReadError = (label: string) => (error: Error) => {
         console.error(`Could not read ${label} from Firestore.`, error);
         setAuthError(`Could not load ${label} from Firebase. Check your internet connection and Firestore rules.`);
       };
-      if (needsMedicines) unsubscribers.push(onSnapshot(collection(firebase.db, "medicines"), (snap: QuerySnapshot<DocumentData>) => {
+      if (needsMedicines) listenOnce("medicines", () => onSnapshot(collection(firebase.db, "medicines"), (snap: QuerySnapshot<DocumentData>) => {
         setMedicines(snap.docs.map((item) => mapDoc<Medicine>(item.id, item.data())).sort((a, b) => a.name.localeCompare(b.name)));
       }, handleReadError("medicines")));
-      if (needsCategories) unsubscribers.push(onSnapshot(collection(firebase.db, "categories"), (snap: QuerySnapshot<DocumentData>) => {
+      if (needsCategories) listenOnce("categories", () => onSnapshot(collection(firebase.db, "categories"), (snap: QuerySnapshot<DocumentData>) => {
         setCategories(snap.docs.map((item) => mapDoc<Category>(item.id, item.data())).sort((a, b) => a.name.localeCompare(b.name)));
       }, handleReadError("categories")));
-      if (needsSuppliers) unsubscribers.push(onSnapshot(collection(firebase.db, "suppliers"), (snap: QuerySnapshot<DocumentData>) => {
+      if (needsSuppliers) listenOnce("suppliers", () => onSnapshot(collection(firebase.db, "suppliers"), (snap: QuerySnapshot<DocumentData>) => {
         setSuppliers(snap.docs.map((item) => mapDoc<Supplier>(item.id, item.data())).sort((a, b) => a.name.localeCompare(b.name)));
       }, handleReadError("suppliers")));
-      if (needsMovements) unsubscribers.push(onSnapshot(collection(firebase.db, "stockMovements"), (snap: QuerySnapshot<DocumentData>) => {
+      if (needsMovements) listenOnce("stockMovements", () => onSnapshot(collection(firebase.db, "stockMovements"), (snap: QuerySnapshot<DocumentData>) => {
         setMovements(snap.docs.map((item) => mapDoc<StockMovement>(item.id, item.data())).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
       }, handleReadError("stock movements")));
-      if (needsReception) unsubscribers.push(onSnapshot(collection(firebase.db, "receptionVisits"), (snap: QuerySnapshot<DocumentData>) => {
+      if (needsReception) listenOnce("receptionVisits", () => onSnapshot(collection(firebase.db, "receptionVisits"), (snap: QuerySnapshot<DocumentData>) => {
         setReceptionVisits(normalizeReceptionVisits(snap.docs
           .filter((item) => item.id !== "__patient-id-counter__")
           .map((item) => mapDoc<ReceptionVisit>(item.id, item.data()))
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt))));
       }, handleReadError("patient visits")));
-      if (needsSchoolStudents) unsubscribers.push(onSnapshot(collection(firebase.db, "schoolStudents"), (snap: QuerySnapshot<DocumentData>) => {
+      if (needsSchoolStudents) listenOnce("schoolStudents", () => onSnapshot(collection(firebase.db, "schoolStudents"), (snap: QuerySnapshot<DocumentData>) => {
         setSchoolStudents(snap.docs.map((item) => mapDoc<SchoolStudent>(item.id, item.data())).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
       }, handleReadError("school student records")));
-      if (needsRentItems) unsubscribers.push(onSnapshot(collection(firebase.db, "rentItems"), (snap: QuerySnapshot<DocumentData>) => {
+      if (needsRentItems) listenOnce("rentItems", () => onSnapshot(collection(firebase.db, "rentItems"), (snap: QuerySnapshot<DocumentData>) => {
         setRentItems(snap.docs.map((item) => mapDoc<RentItem>(item.id, item.data())).sort((a, b) => a.name.localeCompare(b.name)));
       }, handleReadError("rent items")));
     }).catch((error: unknown) => {
@@ -390,7 +403,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
     return () => {
       active = false;
-      unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
   }, [pathname, user]);
 
@@ -656,8 +668,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           throw new Error("This patient already has ID " + samePhonePatient.patientNumber + ".");
         }
         const previousVisit = sameIdVisit || samePhonePatient;
-        const patientId = previousVisit?.patientId
-          || ("THS-P-" + crypto.randomUUID().slice(0, 8).toUpperCase());
+        const patientId = previousVisit?.patientId || normalizedPatientNumber;
         const baseVisit = {
           patientId,
           tokenNumber: nextTokenNumber(receptionVisits),
@@ -675,13 +686,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
         if (isLocalAdmin(user?.uid)) {
           const data = readDeskData();
-          const patientNumber = previousVisit?.patientNumber
-            || normalizedPatientNumber
-            || nextPatientNumber(data.receptionVisits ?? []);
           const visit: ReceptionVisit = {
             ...baseVisit,
             id: crypto.randomUUID(),
-            patientNumber,
+            patientNumber: previousVisit?.patientNumber || normalizedPatientNumber,
           };
           data.receptionVisits = [visit, ...(data.receptionVisits ?? [])];
           writeDeskData(data);
@@ -690,7 +698,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
 
         const firebase = await firebaseOrThrow();
-        const knownPatientNumber = previousVisit?.patientNumber || normalizedPatientNumber;
+        const knownPatientNumber = previousVisit?.patientNumber || "";
         if (knownPatientNumber) {
           const payload = { ...baseVisit, patientNumber: knownPatientNumber };
           const ref = await addDoc(collection(firebase.db, "receptionVisits"), payload);
@@ -699,36 +707,35 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return saved;
         }
 
-        // Use the patient ID as the first visit document ID. The transaction reserves
-        // the next available THS number safely when two reception desks register together.
+        // The reception desk supplies the patient's ID. Use it for the first visit
+        // document so two desks cannot claim the same ID at the same time.
         let savedVisit: ReceptionVisit | undefined;
         await runTransaction(firebase.db, async (tx: Transaction) => {
-          let sequence = Number(nextPatientNumber(receptionVisits).replace(/^THS-/i, ""));
-          while (true) {
-            const patientNumber = "THS-" + String(sequence).padStart(3, "0");
-            const ref = doc(firebase.db, "receptionVisits", patientNumber);
-            const existing = await tx.get(ref);
-            if (existing.exists()) {
-              sequence += 1;
-              continue;
-            }
-            const reservedVisit: ReceptionVisit = { ...baseVisit, id: patientNumber, patientNumber };
-            savedVisit = reservedVisit;
-            tx.set(ref, withoutId(reservedVisit));
-            return;
-          }
+          const ref = doc(firebase.db, "receptionVisits", normalizedPatientNumber);
+          const existing = await tx.get(ref);
+          if (existing.exists()) throw new Error(`Patient ID ${normalizedPatientNumber} is already in use. Search for the previous patient record.`);
+          const reservedVisit: ReceptionVisit = { ...baseVisit, id: normalizedPatientNumber, patientNumber: normalizedPatientNumber };
+          savedVisit = reservedVisit;
+          tx.set(ref, withoutId(reservedVisit));
         });
-        if (!savedVisit) throw new Error("Could not assign a patient ID. Please try again.");
+        if (!savedVisit) throw new Error("Could not save this patient ID. Please try again.");
         setReceptionVisits((current) => [savedVisit!, ...current]);
         return savedVisit;
       },
       async registerSchoolStudent(input) {
+        const studentNumber = input.studentNumber.trim().toUpperCase();
         const studentName = input.studentName.trim();
         const schoolName = input.schoolName.trim();
         const className = input.className.trim();
         const phone = input.phone.trim();
-        if (!studentName || !schoolName || !className || !phone) {
-          throw new Error("Complete the student name, school, grade, and phone number.");
+        if (!studentNumber || !studentName || !schoolName || !className || !phone) {
+          throw new Error("Reception must enter the student ID, name, school, grade, and phone number.");
+        }
+        if (!/^[A-Z0-9][A-Z0-9-]{0,29}$/.test(studentNumber)) {
+          throw new Error("Student ID can contain letters, numbers, and hyphens only.");
+        }
+        if (schoolStudents.some((item) => (item.studentNumber || item.id).trim().toUpperCase() === studentNumber)) {
+          throw new Error(`Student ID ${studentNumber} is already in use.`);
         }
         if (!["THS", "IPS", "APEX"].includes(schoolName)) {
           throw new Error("Select THS, IPS, or APEX as the school.");
@@ -738,7 +745,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         const student: SchoolStudent = {
           ...input,
-          id: "",
+          id: studentNumber,
+          studentNumber,
           studentName,
           schoolName,
           className,
@@ -748,31 +756,53 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           createdBy: FIRESTORE_ACTOR_LABEL,
         };
         const firebase = await firebaseOrThrow();
-        const existingMaximum = schoolStudents.reduce((max, item) => {
-          const value = Number((item.studentNumber || item.id).match(/^\d+$/)?.[0] || 0);
-          return Math.max(max, value);
-        }, 0);
-        let sequence = Math.max(existingMaximum, schoolStudents.length) + 1;
-        let savedStudent: SchoolStudent | undefined;
+        const ref = doc(firebase.db, "schoolStudents", studentNumber);
         await runTransaction(firebase.db, async (tx: Transaction) => {
-          sequence = Math.max(sequence, Math.max(existingMaximum, schoolStudents.length) + 1);
-          while (true) {
-            const studentNumber = String(sequence).padStart(3, "0");
-            const ref = doc(firebase.db, "schoolStudents", studentNumber);
-            const existing = await tx.get(ref);
-            if (existing.exists()) {
-              sequence += 1;
-              continue;
-            }
-            const reservedStudent: SchoolStudent = { ...student, id: studentNumber, studentNumber };
-            savedStudent = reservedStudent;
-            tx.set(ref, withoutId(reservedStudent));
-            return;
-          }
+          const existing = await tx.get(ref);
+          if (existing.exists()) throw new Error(`Student ID ${studentNumber} is already in use.`);
+          tx.set(ref, withoutId(student));
         });
-        if (!savedStudent) throw new Error("Could not assign a student ID. Please try again.");
-        setSchoolStudents((current) => [savedStudent!, ...current]);
-        return savedStudent;
+        setSchoolStudents((current) => [student, ...current]);
+        return student;
+      },
+      async issueSchoolStudentMedicine(studentId, medicineId, quantity, note) {
+        const issuedQuantity = Math.floor(Number(quantity));
+        if (!studentId.trim()) throw new Error("Select a registered THS student.");
+        if (!medicineId.trim()) throw new Error("Select a medicine.");
+        if (!Number.isFinite(issuedQuantity) || issuedQuantity <= 0) throw new Error("Enter a quantity greater than zero.");
+        if (isLocalAdmin(user?.uid)) {
+          throw new Error("Student medicine issues require Firebase sign-in and are never saved locally.");
+        }
+        const firebase = await firebaseOrThrow();
+        const issuedAt = new Date().toISOString();
+        await runTransaction(firebase.db, async (tx: Transaction) => {
+          const studentRef = doc(firebase.db, "schoolStudents", studentId);
+          const medicineRef = doc(firebase.db, "medicines", medicineId);
+          const [studentSnap, medicineSnap] = await Promise.all([tx.get(studentRef), tx.get(medicineRef)]);
+          if (!studentSnap.exists()) throw new Error("Registered student was not found.");
+          if (!medicineSnap.exists()) throw new Error("Medicine was not found.");
+          const student = mapDoc<SchoolStudent>(studentSnap.id, studentSnap.data());
+          const medicine = mapDoc<Medicine>(medicineSnap.id, medicineSnap.data());
+          const available = Math.max(0, Math.floor(Number(medicine.quantity) || 0));
+          if (issuedQuantity > available) throw new Error(`Only ${available} ${medicine.unit || "unit(s)"} are in stock.`);
+          const balanceAfter = available - issuedQuantity;
+          tx.update(medicineRef, { quantity: balanceAfter, updatedAt: issuedAt });
+          const movementRef = doc(collection(firebase.db, "stockMovements"));
+          tx.set(movementRef, {
+            medicineId: medicine.id,
+            medicineName: medicine.name,
+            type: "out",
+            quantity: issuedQuantity,
+            balanceAfter,
+            note: note.trim() || `THS student medicine issue · ${student.studentNumber || student.id}`,
+            schoolStudentId: student.studentNumber || student.id,
+            schoolStudentName: student.studentName,
+            schoolName: student.schoolName,
+            className: student.className,
+            createdAt: issuedAt,
+            createdBy: FIRESTORE_ACTOR_LABEL,
+          });
+        });
       },
       async markReceptionMedicineIssued(id) {
         const issuedAt = new Date().toISOString();

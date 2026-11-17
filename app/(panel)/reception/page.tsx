@@ -154,7 +154,7 @@ export default function ReceptionPage() {
     <div>
       <PageHeader
         title="Patient Register"
-        description="Register the patient. The THS patient ID and daily token are assigned automatically."
+        description="Reception enters the patient's unique ID. The daily token is generated automatically."
       />
 
       <Card className="mb-4 p-5">
@@ -212,12 +212,9 @@ export default function ReceptionPage() {
         <Card className="p-5">
           <h2 className="font-semibold text-ths-dark">Register visit</h2>
           <form onSubmit={onSubmit} className="mt-4 space-y-3">
-            {form.patientNumber && (
-              <div className="flex items-center justify-between gap-3 rounded-lg bg-ths-soft px-3 py-2 text-sm">
-                <span className="font-medium text-ths-dark">Returning patient · ID {form.patientNumber}</span>
-                <button type="button" className="text-xs font-semibold text-clinic" onClick={() => setForm((current) => ({ ...current, patientNumber: "" }))}>Clear ID</button>
-              </div>
-            )}
+            <Field label="Patient unique ID (entered by reception)">
+              <input className={fieldClass} value={form.patientNumber} onChange={(event) => setFormField("patientNumber", event.target.value.toUpperCase())} placeholder="Enter the ID assigned by reception" required />
+            </Field>
             <Field label="Patient name">
               <input className={fieldClass} value={form.patientName} onChange={(event) => setFormField("patientName", event.target.value)} required />
             </Field>

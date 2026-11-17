@@ -12,7 +12,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { logout } = useStore();
   const [open, setOpen] = useState(false);
-  const [stockMenuOpen, setStockMenuOpen] = useState(false);
+  const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({});
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[260px_1fr]">
@@ -49,18 +49,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               const groupActive = link.children.some(
                 (child) => pathname === child.href || pathname.startsWith(child.href + "/"),
               );
+              const menuOpen = openMenus[link.href] ?? groupActive;
               return (
                 <div key={link.href}>
                   <button
                     type="button"
-                    aria-expanded={stockMenuOpen || groupActive}
-                    onClick={() => setStockMenuOpen((current) => !current)}
+                    aria-expanded={menuOpen || groupActive}
+                    onClick={() => setOpenMenus((current) => ({ ...current, [link.href]: !current[link.href] }))}
                     className={"flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm " + (groupActive ? "bg-white text-ths-dark font-semibold" : "text-white/90 hover:bg-white/10")}
                   >
                     <span>{link.label}</span>
-                    <span aria-hidden="true">{stockMenuOpen || groupActive ? "−" : "+"}</span>
+                    <span aria-hidden="true">{menuOpen || groupActive ? "−" : "+"}</span>
                   </button>
-                  {(stockMenuOpen || groupActive) && (
+                  {menuOpen && (
                     <div className="ml-3 mt-1 space-y-1 border-l border-white/20 pl-2">
                       {link.children.map((child) => {
                         const childActive = pathname === child.href || pathname.startsWith(child.href + "/");
@@ -73,7 +74,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                             onFocus={() => router.prefetch(child.href)}
                             onClick={() => {
                               setOpen(false);
-                              setStockMenuOpen(true);
+                              setOpenMenus((current) => ({ ...current, [link.href]: true }));
                             }}
                             className={"block rounded-lg px-3 py-2 text-sm " + (childActive ? "bg-white/90 font-semibold text-ths-dark" : "text-white/85 hover:bg-white/10")}
                           >

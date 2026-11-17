@@ -1,10 +1,22 @@
 /** Main desk navigation. Stock entry pages stay grouped under Stock Status. */
 export const mainNavLinks = [
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/reception", label: "Reception" },
-  { href: "/medicine-issue", label: "Medicine Issue" },
-  { href: "/school-students", label: "THS Student" },
-  { href: "/doctor", label: "Doctor" },
+  {
+    href: "/reception",
+    label: "Reception",
+    children: [
+      { href: "/reception", label: "Patient Register" },
+      { href: "/medicine-issue", label: "Patient Medicine Issue" },
+    ],
+  },
+  {
+    href: "/school-students",
+    label: "THS Student",
+    children: [
+      { href: "/school-students", label: "Student Register" },
+      { href: "/student-medicine-issue", label: "Student Medicine Issue" },
+    ],
+  },
   {
     href: "/current-stock",
     label: "Stock Status",

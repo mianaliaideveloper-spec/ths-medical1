@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:clean": "node scripts/clean-dev-cache.mjs && next dev",
-    "build": "next build --webpack",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint"
   },

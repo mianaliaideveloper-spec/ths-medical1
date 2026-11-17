@@ -19,20 +19,6 @@ export function nextSlipNumber(visits: ReceptionVisit[], day = todayIso()) {
   return `THS-${stamp}-${String(count).padStart(3, "0")}`;
 }
 
-export function nextPatientNumber(visits: ReceptionVisit[]) {
-  const highest = visits.reduce((current, visit) => {
-    const candidates = [visit.patientNumber, visit.patientId].filter(
-      (value): value is string => typeof value === "string",
-    );
-    const sequence = candidates.reduce((max, value) => {
-      const match = value.trim().match(/^(?:THS-)?(\d+)$/i);
-      return match ? Math.max(max, Number(match[1])) : max;
-    }, 0);
-    return Math.max(current, sequence);
-  }, 0);
-  return "THS-" + String(highest + 1).padStart(3, "0");
-}
-
 function tokenFromSlipNumber(slipNumber: string) {
   const match = slipNumber.match(/-(\d+)$/);
   return match ? Number(match[1]) : 1;
@@ -76,7 +62,7 @@ export function isValidCnic(value: string) {
 }
 
 export type ReceptionFormInput = {
-  patientNumber?: string;
+  patientNumber: string;
   patientName: string;
   cnic: string;
   age: number;
@@ -86,8 +72,11 @@ export type ReceptionFormInput = {
 
 export function validateReceptionInput(input: ReceptionFormInput) {
   const patientNumber = input.patientNumber?.trim().toUpperCase() || "";
-  if (patientNumber && !(/^THS-\d{3,}$/.test(patientNumber) || /^\d{1,20}$/.test(patientNumber))) {
-    throw new Error("Patient ID must use the THS-001 format.");
+  if (!patientNumber) {
+    throw new Error("Reception must enter the patient's unique ID.");
+  }
+  if (!/^[A-Z0-9][A-Z0-9-]{0,29}$/.test(patientNumber)) {
+    throw new Error("Patient ID can contain letters, numbers, and hyphens only.");
   }
   if (!input.patientName.trim()) {
     throw new Error("Patient name is required.");
@@ -103,7 +92,7 @@ export function validateReceptionInput(input: ReceptionFormInput) {
     throw new Error("Enter a valid age (1–120).");
   }
   return {
-    ...(patientNumber ? { patientNumber } : {}),
+    patientNumber,
     patientName: input.patientName.trim(),
     cnic: formatCnic(input.cnic),
     age,
