@@ -132,6 +132,7 @@ import type {
 type StoreContextValue = {
   ready: boolean;
   dashboardDataReady: boolean;
+  receptionVisitsLoaded: boolean;
   configured: boolean;
   user: DeskSession | null;
   admin: AdminProfile | null;
@@ -404,7 +405,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           .map((item) => mapDoc<ReceptionVisit>(item.id, item.data()))
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt))));
         setLoadedCollections((current) => new Set(current).add("receptionVisits"));
-      }, handleReadError("patient visits")));
+      }, (error: Error) => {
+        handleReadError("patient visits")(error);
+        setLoadedCollections((current) => new Set(current).add("receptionVisits"));
+      }));
       if (needsSchoolStudents) listenOnce("schoolStudents", () => onSnapshot(collection(firebase.db, "schoolStudents"), (snap: QuerySnapshot<DocumentData>) => {
         setSchoolStudents(snap.docs.map((item) => mapDoc<SchoolStudent>(item.id, item.data())).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
       }, handleReadError("school student records")));
@@ -429,6 +433,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return {
       ready,
       dashboardDataReady: ["medicines", "suppliers", "stockMovements", "receptionVisits"].every((key) => loadedCollections.has(key)),
+      receptionVisitsLoaded: loadedCollections.has("receptionVisits"),
       configured,
       user,
       admin,

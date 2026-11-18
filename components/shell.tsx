@@ -140,16 +140,21 @@ export function PageHeader({
   title,
   description,
   action,
+  backHref,
 }: {
   title: string;
   description?: string;
   action?: React.ReactNode;
+  backHref?: string;
 }) {
   return (
     <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ths-dark">{title}</h1>
-        {description && <p className="mt-1 text-sm text-muted">{description}</p>}
+      <div className="flex items-start gap-3">
+        {backHref && <Link href={backHref} aria-label="Back to Reception" title="Back to Reception" className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-white text-ths-dark hover:bg-ths-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ths"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15 18l-6-6 6-6M9 12h12" /></svg></Link>}
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-ths-dark">{title}</h1>
+          {description && <p className="mt-1 text-sm text-muted">{description}</p>}
+        </div>
       </div>
       {action}
     </div>

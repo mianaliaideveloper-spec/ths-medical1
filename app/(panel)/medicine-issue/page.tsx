@@ -20,7 +20,7 @@ function visitState(visit: ReceptionVisit) {
 }
 
 export default function MedicineIssuePage() {
-  const { receptionVisits, medicines, markReceptionMedicineIssued, registerReceptionVisit, saveReceptionPrescription } = useStore();
+  const { receptionVisits, receptionVisitsLoaded, medicines, markReceptionMedicineIssued, registerReceptionVisit, saveReceptionPrescription } = useStore();
   const [query, setQuery] = useState("");
   const [issuingId, setIssuingId] = useState("");
   const [error, setError] = useState("");
@@ -40,7 +40,7 @@ export default function MedicineIssuePage() {
   const visits = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     const digits = normalized.replace(/\D/g, "");
-    if (!normalized) return receptionVisits.filter((visit) => visit.status === "waiting_reception");
+    if (!normalized) return receptionVisits.filter((visit) => visit.status === "waiting_doctor" || visit.status === "waiting_reception");
     return receptionVisits.filter((visit) => {
       const id = (visit.patientNumber || visit.patientId || "").toLowerCase();
       const phone = (visit.phone || "").replace(/\D/g, "");
@@ -167,7 +167,7 @@ export default function MedicineIssuePage() {
 
   return (
     <div>
-      <PageHeader title="Medicine Issue" description="Reception enters the doctor's paper prescription, updates stock, and records medicines handed to the patient." />
+      <PageHeader backHref="/reception" title="Medicine Issue" description="Reception enters the doctor's paper prescription, updates stock, and records medicines handed to the patient." />
       <Card className="mb-4 p-5">
         <label className="block text-sm font-medium text-ths-dark" htmlFor="medicine-issue-search">Patient name, ID or phone number</label>
         <input
@@ -209,7 +209,7 @@ export default function MedicineIssuePage() {
 
       <div className="space-y-3">
         {visits.length === 0 ? (
-          <Card><EmptyState title={query.trim() ? "No matching patient" : "No medicines waiting"} body={query.trim() ? "Check the patient ID or phone number and search again." : "Doctor prescriptions will appear here after the doctor sends them to reception."} /></Card>
+          <Card><EmptyState title={!receptionVisitsLoaded ? "Loading patient visits…" : query.trim() ? "No matching patient" : "No patients waiting"} body={!receptionVisitsLoaded ? "Checking the latest Reception visits in Firebase." : query.trim() ? "Search by patient name, THS ID or phone number." : "New patients sent from Reception and prescriptions ready to issue appear here. Use the paper prescription button to enter the doctor's handwritten medicines."} /></Card>
         ) : visits.map((visit) => (
           <Card key={visit.id} className="p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
